@@ -26,20 +26,20 @@ jobs:
       # -----------------------------
       - name: Ensure depot_tools exists
         run: |
-          mkdir -p /data/webrtc
-          cd /data/webrtc
-          if [ ! -d "/data/webrtc/depot_tools" ]; then
+          mkdir -p home/runner/webrtc
+          cd home/runner/webrtc
+          if [ ! -d "home/runner/webrtc/depot_tools" ]; then
             git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           fi
-          echo "/data/webrtc/depot_tools" >> $GITHUB_PATH
+          echo "home/runner/webrtc/depot_tools" >> $GITHUB_PATH
 
       # -----------------------------
       # Update WebRTC repo (persistent)
       # -----------------------------
       - name: Update WebRTC repo
         run: |
-          mkdir -p /data/webrtc
-          cd /data/webrtc
+          mkdir -p home/runner/webrtc
+          cd home/runner/webrtc
           if [ ! -d "src" ]; then
             git clone https://github.com/GetStream/webrtc.git src
           fi
@@ -52,7 +52,7 @@ jobs:
       # -----------------------------
       - name: Sync dependencies
         run: |
-          cd /data/webrtc
+          cd home/runner/webrtc
           gclient root
           gclient config --spec 'solutions = [
             {
@@ -69,7 +69,7 @@ jobs:
 
       - name: Install WebRTC build deps
         run: |
-          cd /data/webrtc/src
+          cd home/runner/webrtc/src
           ./build/install-build-deps.sh
 
       # -----------------------------
@@ -77,7 +77,7 @@ jobs:
       # -----------------------------
       - name: Build WebRTC AAR
         run: |
-          cd /data/webrtc/src
+          cd home/runner/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
             --arch armeabi-v7a arm64-v8a x86 x86_64 \
             --extra-gn-args treat_warnings_as_errors=false \
@@ -87,11 +87,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libwebrtc-aar
-          path: /data/webrtc/src/libwebrtc.aar
+          path: home/runner/webrtc/src/libwebrtc.aar
 
       # -----------------------------
       # Optional: Clean old build outputs
       # -----------------------------
       - name: Clean old builds (>14 days)
         run: |
-          find /data/webrtc/out -type d -mtime +14 -exec rm -rf {} +
+          find home/runner/webrtc/out -type d -mtime +14 -exec rm -rf {} +
