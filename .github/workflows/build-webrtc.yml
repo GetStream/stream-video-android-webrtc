@@ -1,1 +1,74 @@
 
+name: Build WebRTC Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch name in GetStream/webrtc to build"
+        required: true
+        default: "patch/m137.4"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip openjdk-8-jdk lsb-release software-properties-common
+
+      - name: Set up depot_tools
+        run: |
+          mkdir -p $HOME/webrtc
+          cd $HOME/webrtc
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "$HOME/webrtc/depot_tools" >> $GITHUB_PATH
+
+      - name: Clone WebRTC repo
+        run: |
+          cd $HOME/webrtc
+          git clone https://github.com/GetStream/webrtc.git src
+          cd src
+          git checkout ${{ github.event.inputs.branch }}
+
+      - name: Configure gclient
+        run: |
+          cd $HOME/webrtc
+          gclient root
+          gclient config --spec 'solutions = [
+            {
+              "name": "src",
+              "url": "git@github.com:GetStream/webrtc.git",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {},
+            },
+          ]
+          target_os = ["android", "unix"]
+          '
+
+      - name: Sync dependencies
+        run: |
+          cd $HOME/webrtc
+          gclient sync
+
+      - name: Install WebRTC build deps
+        run: |
+          cd $HOME/webrtc/src
+          ./build/install-build-deps.sh
+
+      - name: Build WebRTC AAR
+        run: |
+          cd $HOME/webrtc/src
+          python3 ./tools_webrtc/android/build_aar.py
+
+      - name: Upload AAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libwebrtc-aar
+          path: $HOME/webrtc/src/libwebrtc.aar
