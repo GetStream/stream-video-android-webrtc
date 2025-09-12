@@ -1,4 +1,4 @@
-name: Check Runner Disk Space
+name: Check Runner Specs
 
 on:
   workflow_dispatch:  # This allows you to trigger manually
@@ -14,3 +14,8 @@ jobs:
         run: |
           echo "Available space:"
           df -BG | grep '^/dev/' | awk '{print $4 " available on " $1}'
+
+      - name: Check runner specs
+        run: |
+          echo "CPU cores: $(nproc)"
+          free -h
