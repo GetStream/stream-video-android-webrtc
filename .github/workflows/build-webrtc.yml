@@ -1,4 +1,4 @@
-name: Build WebRTC Android
+name: Build WebRTC Android (Self-hosted Persistent)
 
 on:
   workflow_dispatch:
@@ -22,45 +22,37 @@ jobs:
           sudo apt-get install -y python3-pip openjdk-8-jdk lsb-release software-properties-common
 
       # -----------------------------
-      # Cache depot_tools
+      # Setup depot_tools (persistent)
       # -----------------------------
-      - name: Cache depot_tools
-        uses: actions/cache@v3
-        with:
-          path: $HOME/webrtc/depot_tools
-          key: depot_tools-v1
-
-      - name: Set up depot_tools
+      - name: Ensure depot_tools exists
         run: |
-          mkdir -p $HOME/webrtc
-          cd $HOME/webrtc
-          if [ ! -d "$HOME/webrtc/depot_tools" ]; then
+          mkdir -p /data/webrtc
+          cd /data/webrtc
+          if [ ! -d "/data/webrtc/depot_tools" ]; then
             git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           fi
-          echo "$HOME/webrtc/depot_tools" >> $GITHUB_PATH
+          echo "/data/webrtc/depot_tools" >> $GITHUB_PATH
 
       # -----------------------------
-      # Cache WebRTC gclient sync
+      # Update WebRTC repo (persistent)
       # -----------------------------
-      - name: Cache WebRTC dependencies
-        uses: actions/cache@v3
-        with:
-          path: $HOME/webrtc/src
-          key: webrtc-src-${{ github.event.inputs.branch }}
-
-      - name: Clone WebRTC repo
+      - name: Update WebRTC repo
         run: |
-          cd $HOME/webrtc
-          if [ ! -d "$HOME/webrtc/src" ]; then
+          mkdir -p /data/webrtc
+          cd /data/webrtc
+          if [ ! -d "src" ]; then
             git clone https://github.com/GetStream/webrtc.git src
           fi
           cd src
-          git fetch --all
+          git fetch origin
           git checkout ${{ github.event.inputs.branch }}
 
-      - name: Configure gclient
+      # -----------------------------
+      # Sync dependencies (reuse existing)
+      # -----------------------------
+      - name: Sync dependencies
         run: |
-          cd $HOME/webrtc
+          cd /data/webrtc
           gclient root
           gclient config --spec 'solutions = [
             {
@@ -73,32 +65,19 @@ jobs:
           ]
           target_os = ["android", "unix"]
           '
-
-      - name: Sync dependencies
-        run: |
-          cd $HOME/webrtc
           gclient sync --force
 
       - name: Install WebRTC build deps
         run: |
-          cd $HOME/webrtc/src
+          cd /data/webrtc/src
           ./build/install-build-deps.sh
 
       # -----------------------------
-      # Cache WebRTC build outputs
-      # -----------------------------
-      - name: Cache WebRTC build output
-        uses: actions/cache@v3
-        with:
-          path: $HOME/webrtc/src/out
-          key: webrtc-build-${{ github.event.inputs.branch }}
-
-      # -----------------------------
-      # Build WebRTC AAR (fix Werror issue)
+      # Build WebRTC AAR
       # -----------------------------
       - name: Build WebRTC AAR
         run: |
-          cd $HOME/webrtc/src
+          cd /data/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
             --arch armeabi-v7a arm64-v8a x86 x86_64 \
             --extra-gn-args treat_warnings_as_errors=false \
@@ -108,8 +87,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libwebrtc-aar
-          path: $HOME/webrtc/src/libwebrtc.aar
+          path: /data/webrtc/src/libwebrtc.aar
 
-      - name: Clean build outputs
-        if: success()
-        run: rm -rf $HOME/webrtc/src/out
+      # -----------------------------
+      # Optional: Clean old build outputs
+      # -----------------------------
+      - name: Clean old builds (>14 days)
+        run: |
+          find /data/webrtc/out -type d -mtime +14 -exec rm -rf {} +
