@@ -26,12 +26,18 @@ jobs:
       # -----------------------------
       - name: Ensure depot_tools exists
         run: |
-          mkdir -p home/runner/webrtc
-          cd home/runner/webrtc
-          if [ ! -d "home/runner/webrtc/depot_tools" ]; then
+          mkdir -p /home/runner/webrtc
+          cd /home/runner/webrtc
+          if [ ! -d "depot_tools" ]; then
             git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           fi
-          echo "home/runner/webrtc/depot_tools" >> $GITHUB_PATH
+          echo "/home/runner/webrtc/depot_tools" >> $GITHUB_PATH
+
+      - name: Verify depot_tools
+        run: |
+          which gclient
+          gclient --version || echo "gclient ready"
+
 
       # -----------------------------
       # Update WebRTC repo (persistent)
