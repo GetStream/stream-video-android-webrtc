@@ -1,0 +1,16 @@
+name: Check Runner Disk Space
+
+on:
+  workflow_dispatch:  # This allows you to trigger manually
+
+jobs:
+  check-disk:
+    runs-on: ec2-m6id.8xlarge-32core-ssd  # GitHub-hosted runner
+    steps:
+      - name: Check free disk space
+        run: df -h
+
+      - name: Show available disk space in GB
+        run: |
+          echo "Available space:"
+          df -BG | grep '^/dev/' | awk '{print $4 " available on " $1}'
