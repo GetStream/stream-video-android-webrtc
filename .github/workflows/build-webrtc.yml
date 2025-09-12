@@ -1,4 +1,3 @@
-
 name: Build WebRTC Android
 
 on:
@@ -22,18 +21,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-pip openjdk-8-jdk lsb-release software-properties-common
 
+      # -----------------------------
+      # Cache depot_tools
+      # -----------------------------
+      - name: Cache depot_tools
+        uses: actions/cache@v3
+        with:
+          path: $HOME/webrtc/depot_tools
+          key: depot_tools-v1
+
       - name: Set up depot_tools
         run: |
           mkdir -p $HOME/webrtc
           cd $HOME/webrtc
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          if [ ! -d "$HOME/webrtc/depot_tools" ]; then
+            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          fi
           echo "$HOME/webrtc/depot_tools" >> $GITHUB_PATH
+
+      # -----------------------------
+      # Cache WebRTC gclient sync
+      # -----------------------------
+      - name: Cache WebRTC dependencies
+        uses: actions/cache@v3
+        with:
+          path: $HOME/webrtc/src
+          key: webrtc-src-${{ github.event.inputs.branch }}
 
       - name: Clone WebRTC repo
         run: |
           cd $HOME/webrtc
-          git clone https://github.com/GetStream/webrtc.git src
+          if [ ! -d "$HOME/webrtc/src" ]; then
+            git clone https://github.com/GetStream/webrtc.git src
+          fi
           cd src
+          git fetch --all
           git checkout ${{ github.event.inputs.branch }}
 
       - name: Configure gclient
@@ -43,7 +65,7 @@ jobs:
           gclient config --spec 'solutions = [
             {
               "name": "src",
-              "url": "git@github.com:GetStream/webrtc.git",
+              "url": "https://github.com/GetStream/webrtc.git",
               "deps_file": "DEPS",
               "managed": False,
               "custom_deps": {},
@@ -62,13 +84,27 @@ jobs:
           cd $HOME/webrtc/src
           ./build/install-build-deps.sh
 
+      # -----------------------------
+      # Cache WebRTC build outputs
+      # -----------------------------
+      - name: Cache WebRTC build output
+        uses: actions/cache@v3
+        with:
+          path: $HOME/webrtc/src/out
+          key: webrtc-build-${{ github.event.inputs.branch }}
+
       - name: Build WebRTC AAR
         run: |
           cd $HOME/webrtc/src
-          python3 ./tools_webrtc/android/build_aar.py
+          # Disable Werror to allow unused functions
+          python3 ./tools_webrtc/android/build_aar.py -j$(nproc) --extra_gn_args="treat_warnings_as_errors=false"
 
       - name: Upload AAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: libwebrtc-aar
           path: $HOME/webrtc/src/libwebrtc.aar
+
+      - name: Clean build outputs
+        if: success()
+        run: rm -rf $HOME/webrtc/src/out
