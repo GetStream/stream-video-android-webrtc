@@ -77,7 +77,7 @@ jobs:
       - name: Sync dependencies
         run: |
           cd $HOME/webrtc
-          gclient sync
+          gclient sync --force
 
       - name: Install WebRTC build deps
         run: |
@@ -93,6 +93,9 @@ jobs:
           path: $HOME/webrtc/src/out
           key: webrtc-build-${{ github.event.inputs.branch }}
 
+      # -----------------------------
+      # Build WebRTC AAR (fix Werror issue)
+      # -----------------------------
       - name: Build WebRTC AAR
         run: |
           cd $HOME/webrtc/src
