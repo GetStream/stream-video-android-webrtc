@@ -1,4 +1,4 @@
-name: Build WebRTC Android (Self-hosted Persistent)
+name: Build WebRTC Android
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       branch:
         description: "Branch name in GetStream/webrtc to build"
         required: true
-        default: "patch/m137.4"
+        default: "patch/m137.5"
 
 jobs:
   build:
