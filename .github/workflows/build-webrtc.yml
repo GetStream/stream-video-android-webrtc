@@ -78,6 +78,13 @@ jobs:
           cd home/runner/webrtc/src
           ./build/install-build-deps.sh
 
+      - name: Set JDK 8
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          javac -version
+
       # -----------------------------
       # Build WebRTC AAR
       # -----------------------------
