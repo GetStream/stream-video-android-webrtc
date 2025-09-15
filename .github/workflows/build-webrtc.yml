@@ -53,63 +53,63 @@ jobs:
           git fetch origin
           git checkout ${{ github.event.inputs.branch }}
 
-      - name: Print WebRTC Java and NDK version
-        run: |
-          echo "=== JAVA VERSION USED BY WEBRTC ==="
-          if [ -x "$HOME/webrtc/src/third_party/jdk/current/bin/java" ]; then
-            $HOME/webrtc/src/third_party/jdk/current/bin/java -version
-          else
-            java -version
-          fi
-
-          echo ""
-          echo "=== NDK VERSION USED BY WEBRTC ==="
-          if [ -f "$HOME/webrtc/src/third_party/android_toolchain/ndk/source.properties" ]; then
-            grep Pkg.Revision $HOME/webrtc/src/third_party/android_toolchain/ndk/source.properties
-          else
-            echo "NDK not found yet (will be fetched during gclient sync)"
-          fi
-
-          echo ""
-          echo "=== GN ARGS (if build dir exists) ==="
-          BUILD_DIR=$(find /tmp -maxdepth 1 -type d -name 'tmp*' | head -n 1)
-          if [ -n "$BUILD_DIR" ]; then
-            gn args "$BUILD_DIR/armeabi-v7a" --list || true
-          else
-            echo "Build dir not found yet"
-          fi
+#      - name: Print WebRTC Java and NDK version
+#        run: |
+#          echo "=== JAVA VERSION USED BY WEBRTC ==="
+#          if [ -x "$HOME/webrtc/src/third_party/jdk/current/bin/java" ]; then
+#            $HOME/webrtc/src/third_party/jdk/current/bin/java -version
+#          else
+#            java -version
+#          fi
+#
+#          echo ""
+#          echo "=== NDK VERSION USED BY WEBRTC ==="
+#          if [ -f "$HOME/webrtc/src/third_party/android_toolchain/ndk/source.properties" ]; then
+#            grep Pkg.Revision $HOME/webrtc/src/third_party/android_toolchain/ndk/source.properties
+#          else
+#            echo "NDK not found yet (will be fetched during gclient sync)"
+#          fi
+#
+#          echo ""
+#          echo "=== GN ARGS (if build dir exists) ==="
+#          BUILD_DIR=$(find /tmp -maxdepth 1 -type d -name 'tmp*' | head -n 1)
+#          if [ -n "$BUILD_DIR" ]; then
+#            gn args "$BUILD_DIR/armeabi-v7a" --list || true
+#          else
+#            echo "Build dir not found yet"
+#          fi
 
       # -----------------------------
       # Sync dependencies (reuse existing)
       # -----------------------------
-#      - name: Sync dependencies
-#        run: |
-#          cd home/runner/webrtc
-#          gclient root
-#          gclient config --spec 'solutions = [
-#            {
-#              "name": "src",
-#              "url": "https://github.com/GetStream/webrtc.git",
-#              "deps_file": "DEPS",
-#              "managed": False,
-#              "custom_deps": {},
-#            },
-#          ]
-#          target_os = ["android", "unix"]
-#          '
-#          gclient sync --force
+      - name: Sync dependencies
+        run: |
+          cd home/runner/webrtc
+          gclient root
+          gclient config --spec 'solutions = [
+            {
+              "name": "src",
+              "url": "https://github.com/GetStream/webrtc.git",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {},
+            },
+          ]
+          target_os = ["android", "unix"]
+          '
+          gclient sync --force
 
       - name: Install WebRTC build deps
         run: |
           cd home/runner/webrtc/src
           ./build/install-build-deps.sh
 
-      - name: Set JDK 8
-        run: |
-          export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          javac -version
+#      - name: Set JDK 8
+#        run: |
+#          export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+#          export PATH=$JAVA_HOME/bin:$PATH
+#          java -version
+#          javac -version
 
       
 
