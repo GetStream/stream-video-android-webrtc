@@ -51,8 +51,28 @@ jobs:
           fi
           cd src
           git fetch origin
-          git checkout ${{ github.event.inputs.branch }}
+          
+          # Check if we're already on the correct branch and up to date
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          if [ "$CURRENT_BRANCH" != "${{ github.event.inputs.branch }}" ]; then
+            echo "Switching from $CURRENT_BRANCH to ${{ github.event.inputs.branch }}"
+            git checkout ${{ github.event.inputs.branch }}
+          else
+            echo "Already on branch ${{ github.event.inputs.branch }}"
+            # Check if we need to pull updates
+            git fetch origin
+            LOCAL=$(git rev-parse HEAD)
+            REMOTE=$(git rev-parse origin/${{ github.event.inputs.branch }})
+            if [ "$LOCAL" != "$REMOTE" ]; then
+              echo "Branch has updates, pulling changes..."
+              git pull origin ${{ github.event.inputs.branch }}
+            else
+              echo "Branch is already up to date"
+            fi
+          fi
+          
           echo "WebRTC repo updated to branch: ${{ github.event.inputs.branch }}"
+          echo "Current commit: $(git rev-parse HEAD)"
 
 #      - name: Print WebRTC Java and NDK version
 #        run: |
@@ -88,40 +108,74 @@ jobs:
         with:
           path: |
             /home/runner/webrtc/.gclient_entries
+            /home/runner/webrtc/.gclient
             /home/runner/webrtc/src/third_party
             /home/runner/webrtc/src/build
             /home/runner/webrtc/src/tools
+            /home/runner/webrtc/src/out
           key: webrtc-deps-${{ github.event.inputs.branch }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}
           restore-keys: |
             webrtc-deps-${{ github.event.inputs.branch }}-
             webrtc-deps-
 
       # -----------------------------
-      # Sync dependencies (incremental)
+      # Check if sync is needed
+      # -----------------------------
+      - name: Check sync status
+        id: sync-check
+        run: |
+          cd /home/runner/webrtc
+          if [ ! -f ".gclient_entries" ]; then
+            echo "needs-sync=true" >> $GITHUB_OUTPUT
+            echo "First run - full sync needed"
+          elif [ ! -f "src/DEPS" ]; then
+            echo "needs-sync=true" >> $GITHUB_OUTPUT
+            echo "DEPS file missing - full sync needed"
+          else
+            # Check if DEPS file has changed
+            if [ ".gclient_entries" -ot "src/DEPS" ]; then
+              echo "needs-sync=true" >> $GITHUB_OUTPUT
+              echo "DEPS file changed - full sync needed"
+            else
+              echo "needs-sync=false" >> $GITHUB_OUTPUT
+              echo "DEPS file unchanged - incremental sync"
+            fi
+          fi
+
+      # -----------------------------
+      # Sync dependencies (optimized)
       # -----------------------------
       - name: Sync dependencies
         run: |
           cd /home/runner/webrtc
-          gclient root
-          gclient config --spec 'solutions = [
-            {
-              "name": "src",
-              "url": "https://github.com/GetStream/webrtc.git",
-              "deps_file": "DEPS",
-              "managed": False,
-              "custom_deps": {},
-            },
-          ]
-          target_os = ["android", "unix"]
-          '
-          # Only sync if DEPS file changed or if this is first run
-          if [ ! -f ".gclient_entries" ] || [ "src/DEPS" -nt ".gclient_entries" ]; then
-            echo "DEPS file changed or first run - performing full sync"
-            gclient sync
-          else
-            echo "DEPS file unchanged - performing incremental sync"
-            gclient sync --no-history
+          
+          # Configure gclient if not already configured
+          if [ ! -f ".gclient" ]; then
+            echo "Configuring gclient..."
+            gclient root
+            gclient config --spec 'solutions = [
+              {
+                "name": "src",
+                "url": "https://github.com/GetStream/webrtc.git",
+                "deps_file": "DEPS",
+                "managed": False,
+                "custom_deps": {},
+              },
+            ]
+            target_os = ["android", "unix"]
+            '
           fi
+          
+          # Perform sync based on status check
+          if [ "${{ steps.sync-check.outputs.needs-sync }}" == "true" ]; then
+            echo "Performing full sync..."
+            gclient sync --jobs=$(nproc) --no-history --shallow
+          else
+            echo "Performing incremental sync..."
+            gclient sync --jobs=$(nproc) --no-history --shallow --delete_unversioned_trees
+          fi
+          
+          echo "Sync completed successfully"
 
       - name: Install WebRTC build deps
         run: |
