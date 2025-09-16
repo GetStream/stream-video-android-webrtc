@@ -162,8 +162,7 @@ jobs:
                 "custom_deps": {},
               },
             ]
-            target_os = ["android", "unix"]
-            '
+            target_os = ["android", "unix"]'
           fi
           
           # Perform sync based on status check
