@@ -44,14 +44,15 @@ jobs:
       # -----------------------------
       - name: Update WebRTC repo
         run: |
-          mkdir -p home/runner/webrtc
-          cd home/runner/webrtc
+          mkdir -p /home/runner/webrtc
+          cd /home/runner/webrtc
           if [ ! -d "src" ]; then
             git clone https://github.com/GetStream/webrtc.git src
           fi
           cd src
           git fetch origin
           git checkout ${{ github.event.inputs.branch }}
+          echo "WebRTC repo updated to branch: ${{ github.event.inputs.branch }}"
 
 #      - name: Print WebRTC Java and NDK version
 #        run: |
@@ -80,11 +81,27 @@ jobs:
 #          fi
 
       # -----------------------------
-      # Sync dependencies (reuse existing)
+      # Cache WebRTC dependencies
+      # -----------------------------
+      - name: Cache WebRTC dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/webrtc/.gclient_entries
+            /home/runner/webrtc/src/third_party
+            /home/runner/webrtc/src/build
+            /home/runner/webrtc/src/tools
+          key: webrtc-deps-${{ github.event.inputs.branch }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}
+          restore-keys: |
+            webrtc-deps-${{ github.event.inputs.branch }}-
+            webrtc-deps-
+
+      # -----------------------------
+      # Sync dependencies (incremental)
       # -----------------------------
       - name: Sync dependencies
         run: |
-          cd home/runner/webrtc
+          cd /home/runner/webrtc
           gclient root
           gclient config --spec 'solutions = [
             {
@@ -97,12 +114,25 @@ jobs:
           ]
           target_os = ["android", "unix"]
           '
-          gclient sync --force
+          # Only sync if DEPS file changed or if this is first run
+          if [ ! -f ".gclient_entries" ] || [ "src/DEPS" -nt ".gclient_entries" ]; then
+            echo "DEPS file changed or first run - performing full sync"
+            gclient sync
+          else
+            echo "DEPS file unchanged - performing incremental sync"
+            gclient sync --no-history
+          fi
 
       - name: Install WebRTC build deps
         run: |
-          cd home/runner/webrtc/src
-          ./build/install-build-deps.sh
+          cd /home/runner/webrtc/src
+          # Only install if not already installed
+          if [ ! -f "/home/runner/.webrtc-deps-installed" ]; then
+            ./build/install-build-deps.sh
+            touch /home/runner/.webrtc-deps-installed
+          else
+            echo "Build dependencies already installed, skipping..."
+          fi
 
 #      - name: Set JDK 8
 #        run: |
@@ -118,7 +148,7 @@ jobs:
       # -----------------------------
       - name: Build WebRTC AAR
         run: |
-          cd home/runner/webrtc/src
+          cd /home/runner/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
             --arch armeabi-v7a arm64-v8a x86 x86_64 \
             --extra-gn-args treat_warnings_as_errors=false \
@@ -128,11 +158,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libwebrtc-aar
-          path: home/runner/webrtc/src/libwebrtc.aar
+          path: /home/runner/webrtc/src/libwebrtc.aar
 
       # -----------------------------
       # Optional: Clean old build outputs
       # -----------------------------
       - name: Clean old builds (>14 days)
         run: |
-          find home/runner/webrtc/out -type d -mtime +14 -exec rm -rf {} +
+          find /home/runner/webrtc/out -type d -mtime +14 -exec rm -rf {} + 2>/dev/null || true
