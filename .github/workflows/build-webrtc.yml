@@ -101,7 +101,7 @@ jobs:
 #          fi
 
       # -----------------------------
-      # Cache WebRTC dependencies
+      # Cache WebRTC dependencies and build outputs
       # -----------------------------
       - name: Cache WebRTC dependencies
         uses: actions/cache@v4
@@ -117,6 +117,17 @@ jobs:
           restore-keys: |
             webrtc-deps-${{ github.event.inputs.branch }}-
             webrtc-deps-
+
+      - name: Cache WebRTC build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/webrtc/src/out
+            /home/runner/webrtc/src/libwebrtc.aar
+          key: webrtc-build-${{ github.event.inputs.branch }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}
+          restore-keys: |
+            webrtc-build-${{ github.event.inputs.branch }}-
+            webrtc-build-
 
       # -----------------------------
       # Check if sync is needed
@@ -187,14 +198,28 @@ jobs:
             echo "Build dependencies already installed, skipping..."
           fi
 
-#      - name: Set JDK 8
+#      - name: Check if AAR needs rebuild
+#        id: build-check
 #        run: |
-#          export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-#          export PATH=$JAVA_HOME/bin:$PATH
-#          java -version
-#          javac -version
-
-      
+#          cd /home/runner/webrtc/src
+#          if [ -f "out/Release/libwebrtc.aar" ]; then
+#            echo "needs-build=false" >> $GITHUB_OUTPUT
+#            echo "Found cached libwebrtc.aar - skipping build"
+#          else
+#            echo "needs-build=true" >> $GITHUB_OUTPUT
+#            echo "No cached AAR found - build needed"
+#          fi
+#
+#      # -----------------------------
+#      # Cache WebRTC AAR
+#      # -----------------------------
+#      - name: Cache WebRTC build output
+#        uses: actions/cache@v4
+#        with:
+#          path: /home/runner/webrtc/src/out
+#          key: webrtc-${{ runner.os }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}-${{ hashFiles('.github/workflows/build.yml') }}
+#          restore-keys: |
+#            webrtc-${{ runner.os }}-
 
       # -----------------------------
       # Build WebRTC AAR
@@ -204,7 +229,7 @@ jobs:
           cd /home/runner/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
             --arch armeabi-v7a arm64-v8a x86 x86_64 \
-            --extra-gn-args treat_warnings_as_errors=false \
+            --extra-gn-args 'treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false' \
             --extra-ninja-switches=-j$(nproc)
 
       - name: Upload AAR artifact
