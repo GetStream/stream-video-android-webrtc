@@ -222,6 +222,27 @@ jobs:
 #            webrtc-${{ runner.os }}-
 
       # -----------------------------
+      # Print GN args for debugging
+      # -----------------------------
+      - name: Print GN args
+        run: |
+          cd /home/runner/webrtc/src
+          echo "=== EXISTING GN ARGS IN BUILD DIR ==="
+          # Check if build directory exists and print existing args
+          if [ -d "out/Release" ]; then
+            echo "Found existing build directory, printing GN args:"
+            gn args out/Release --list 2>/dev/null || echo "Could not read GN args from existing build"
+          else
+            echo "No existing build directory found"
+          fi
+          echo ""
+          echo "=== CUSTOM GN ARGS WE'RE ADDING ==="
+          echo "Architecture: arm64-v8a"
+          echo "Custom Args: treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false"
+          echo "Ninja Switches: -j$(nproc)"
+          echo "================================"
+
+      # -----------------------------
       # Build WebRTC AAR
       # -----------------------------
       - name: Build WebRTC AAR
