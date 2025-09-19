@@ -192,13 +192,25 @@ jobs:
           cd /home/runner/webrtc/src
           # Only install if not already installed
           if [ ! -f "/home/runner/.webrtc-deps-installed" ]; then
-            # Pre-install packages that have changed names in Ubuntu 24.04
-            echo "Installing updated package dependencies for Ubuntu 24.04..."
-            sudo apt-get update
-            sudo apt-get install -y libasound2t64 libpng16-16
+            echo "Installing WebRTC build dependencies for Ubuntu 24.04..."
             
-            # Run the original install script
-            ./build/install-build-deps.sh
+            # Create a modified version of install-build-deps.sh for Ubuntu 24.04
+            echo "Creating Ubuntu 24.04 compatible install script..."
+            cp build/install-build-deps.sh build/install-build-deps-ubuntu24.sh
+            
+            # Replace problematic package names in the script
+            sed -i 's/libasound2/libasound2t64/g' build/install-build-deps-ubuntu24.sh
+            sed -i 's/libpng12-0/libpng16-16/g' build/install-build-deps-ubuntu24.sh
+            
+            # Make the script executable
+            chmod +x build/install-build-deps-ubuntu24.sh
+            
+            # Run the modified install script
+            ./build/install-build-deps-ubuntu24.sh
+            
+            # Clean up the temporary script
+            rm build/install-build-deps-ubuntu24.sh
+            
             touch /home/runner/.webrtc-deps-installed
           else
             echo "Build dependencies already installed, skipping..."
