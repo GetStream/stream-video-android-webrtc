@@ -6,7 +6,7 @@ on:
       branch:
         description: "Branch name in GetStream/webrtc to build"
         required: true
-        default: "patch/m137.5"
+        default: "test/m125_with_logs"
 
 jobs:
   build:
@@ -192,6 +192,12 @@ jobs:
           cd /home/runner/webrtc/src
           # Only install if not already installed
           if [ ! -f "/home/runner/.webrtc-deps-installed" ]; then
+            # Pre-install packages that have changed names in Ubuntu 24.04
+            echo "Installing updated package dependencies for Ubuntu 24.04..."
+            sudo apt-get update
+            sudo apt-get install -y libasound2t64 libpng16-16
+            
+            # Run the original install script
             ./build/install-build-deps.sh
             touch /home/runner/.webrtc-deps-installed
           else
