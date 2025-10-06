@@ -84,11 +84,14 @@ jobs:
 
       - name: Publish to Maven Central
         run: |
-          echo "Publishing WebRTC AAR to Maven Central..."
           echo "Version: $version"
           echo "Snapshot: $SNAPSHOT"
           
-          ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+          if [[ "$version" == *"SNAPSHOT"* ]]; then
+            ./gradlew publishToSonatype
+          else
+            ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+          fi
 
       - name: Verify publication
         run: |
