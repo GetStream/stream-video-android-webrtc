@@ -8,14 +8,10 @@ on:
       version:
         description: "Version to publish"
         required: true
-        default: "130.0.1-SNAPSHOT"
-      branch:
-        description: "Branch name in GetStream/webrtc to use"
-        required: true
-        default: "patch/m137.5"
+        default: "137.0.1-SNAPSHOT"
       publish_snapshot:
         description: "Publish as snapshot version"
-        required: false
+        required: true
         default: true
         type: boolean
 
