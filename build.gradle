@@ -111,8 +111,8 @@ signing {
     sign publishing.publications.maven
     
     useInMemoryPgpKeys(
-        signing.key,
-        signing.password
+        project.findProperty('signing.key'),
+        project.findProperty('signing.password')
     )
 }
 
@@ -154,17 +154,26 @@ tasks.register("printAllArtifacts") {
     group = "publishing"
 
     doLast {
-        plugins.withId("maven-publish") {
-            def publishingExtension = extensions.findByType(PublishingExtension)
-            publishingExtension?.publications?.all { publication ->
+        println("Project version: ${project.version}")
+        println("Project group: ${project.group}")
+        println("Archives base name: ${project.archivesBaseName}")
+        
+        // Try to access publications directly
+        if (project.hasProperty('publishing')) {
+            project.publishing.publications.all { publication ->
                 if (publication instanceof MavenPublication) {
                     def groupId = publication.groupId
                     def artifactId = publication.artifactId
                     def version = publication.version
-                    println("$groupId:$artifactId:$version")
+                    println("Publication: $groupId:$artifactId:$version")
                 }
             }
+        } else {
+            println("Publishing extension not available")
         }
+        
+        // Also print the expected artifact info
+        println("Expected artifact: ${project.group}:${project.archivesBaseName}:${project.version}")
     }
 }
 
