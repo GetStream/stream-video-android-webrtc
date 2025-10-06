@@ -49,9 +49,9 @@ group = 'io.getstream'
 archivesBaseName = 'webrtc-android'
 
 // Ensure the AAR file exists
-def aarFile = file('libwebrtc.aar')
+def aarFile = file('artifacts/libwebrtc.aar')
 if (!aarFile.exists()) {
-    throw new GradleException("libwebrtc.aar not found. Please run the build-webrtc workflow first.")
+    throw new GradleException("libwebrtc.aar not found in artifacts/ directory. Please place the AAR file there.")
 }
 
 publishing {

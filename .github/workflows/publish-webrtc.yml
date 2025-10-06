@@ -34,19 +34,14 @@ jobs:
           java-version: '8'
           distribution: 'temurin'
 
-      - name: Download WebRTC AAR artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: libwebrtc-aar
-          path: ./
-
       - name: Verify AAR artifact
         run: |
-          if [ ! -f "./libwebrtc.aar" ]; then
-            echo "Error: libwebrtc.aar not found"
+          if [ ! -f "./artifacts/libwebrtc.aar" ]; then
+            echo "Error: libwebrtc.aar not found in artifacts directory"
+            echo "Please place the libwebrtc.aar file in the artifacts/ directory"
             exit 1
           fi
-          echo "AAR artifact found: $(ls -la ./libwebrtc.aar)"
+          echo "AAR artifact found: $(ls -la ./artifacts/libwebrtc.aar)"
 
       - name: Configure environment variables
         run: |
