@@ -1,11 +1,3 @@
-rootProject.name = 'stream-video-webrtc-android'
-
-// Configure the project
-gradle.settingsEvaluated {
-    println "Configuring WebRTC Android publishing project"
-    println "Project name: ${rootProject.name}"
-}
-
 pluginManagement {
     repositories {
         gradlePluginPortal()
@@ -14,3 +6,4 @@ pluginManagement {
     }
 }
 
+rootProject.name = 'stream-video-webrtc-android'
