@@ -33,15 +33,15 @@ tasks.register('androidSourcesJar', Jar) {
     }
 }
 
-tasks.withType(dokkaHtmlPartial.getClass()).configureEach {
+tasks.withType(org.jetbrains.dokka.gradle.DokkaTask).configureEach {
     pluginsMapConfiguration.set(
             ["org.jetbrains.dokka.base.DokkaBase": """{ "separateInheritedMembers": true}"""]
     )
 }
 
-task javadocJar(type: Jar, dependsOn: dokkaJavadoc) {
+task javadocJar(type: Jar, dependsOn: dokkaHtml) {
     archiveClassifier.set('javadoc')
-    from dokkaJavadoc.outputDirectory
+    from dokkaHtml.outputDirectory
 }
 
 afterEvaluate {
