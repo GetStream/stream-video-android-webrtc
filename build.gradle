@@ -22,6 +22,22 @@ if (project.hasProperty("version")) {
     project.version = "LOCAL-DEV" // fallback for local builds
 }
 
+tasks.register('androidSourcesJar', Jar) {
+    archiveClassifier.set('sources')
+    if (project.plugins.findPlugin("com.android.library")) {
+        from android.sourceSets.main.java.srcDirs
+        from android.sourceSets.main.kotlin.srcDirs
+    } else {
+        from sourceSets.main.java.srcDirs
+        from sourceSets.main.kotlin.srcDirs
+    }
+}
+
+task javadocJar(type: Jar, dependsOn: dokkaJavadoc) {
+    archiveClassifier.set('javadoc')
+    from dokkaJavadoc.outputDirectory
+}
+
 afterEvaluate {
     publishing {
         publications {
@@ -30,8 +46,8 @@ afterEvaluate {
                 artifactId = 'stream-video-webrtc-android'
                 version = project.version
                 artifact aarFile
-                artifact tasks.named("androidSourcesJar")
-                artifact tasks.named("javadocJar")
+                artifact(tasks.androidSourcesJar)
+                artifact(tasks.javadocJar)
 
                 pom {
                     name = 'WebRTC Android'
