@@ -4,99 +4,45 @@ plugins {
     id 'io.github.gradle-nexus.publish-plugin' version '1.3.0'
 }
 
-import java.text.SimpleDateFormat
+ext["ossrhUsername"] = System.getenv('OSSRH_USERNAME') ?: ''
+ext["ossrhPassword"] = System.getenv('OSSRH_PASSWORD') ?: ''
+ext["sonatypeStagingProfileId"] = System.getenv('SONATYPE_STAGING_PROFILE_ID') ?: ''
+ext["signing.keyId"] = System.getenv('SIGNING_KEY_ID') ?: ''
+ext["signing.password"] = System.getenv('SIGNING_PASSWORD') ?: ''
+ext["signing.key"] = System.getenv('SIGNING_KEY') ?: ''
 
-tasks.register('androidSourcesJar', Jar) {
-    archiveClassifier.set('sources')
-    if (project.plugins.findPlugin("com.android.library")) {
-        from android.sourceSets.main.java.srcDirs
-        from android.sourceSets.main.kotlin.srcDirs
-    } else {
-        from sourceSets.main.java.srcDirs
-        from sourceSets.main.kotlin.srcDirs
-    }
-}
-
-tasks.withType(dokkaHtmlPartial.getClass()).configureEach {
-    pluginsMapConfiguration.set(
-            ["org.jetbrains.dokka.base.DokkaBase": """{ "separateInheritedMembers": true}"""]
-    )
-}
-
-task javadocJar(type: Jar, dependsOn: dokkaJavadoc) {
-    archiveClassifier.set('javadoc')
-    from dokkaJavadoc.outputDirectory
-}
-
-artifacts {
-    archives androidSourcesJar
-    archives javadocJar
-}
-
-// Create variables with empty default values
-ext["ossrhUsername"] = ''
-ext["ossrhPassword"] = ''
-ext["sonatypeStagingProfileId"] = ''
-ext["signing.keyId"] = ''
-ext["signing.password"] = ''
-ext["signing.key"] = ''
-ext["snapshot"] = ''
-
-File secretPropsFile = project.rootProject.file('local.properties')
-if (secretPropsFile.exists()) {
-  // Read local.properties file first if it exists
-  Properties p = new Properties()
-  new FileInputStream(secretPropsFile).withCloseable { is -> p.load(is) }
-  p.each { name, value -> ext[name] = value }
-} else {
-  // Use system environment variables
-  ext["ossrhUsername"] = System.getenv('OSSRH_USERNAME')
-  ext["ossrhPassword"] = System.getenv('OSSRH_PASSWORD')
-  ext["sonatypeStagingProfileId"] = System.getenv('SONATYPE_STAGING_PROFILE_ID')
-  ext["signing.keyId"] = System.getenv('SIGNING_KEY_ID')
-  ext["signing.password"] = System.getenv('SIGNING_PASSWORD')
-  ext["signing.key"] = System.getenv('SIGNING_KEY')
-  ext["snapshot"] = System.getenv('SNAPSHOT')
-}
-
-group = 'io.getstream'
-def rootVersionName = project.findProperty('version')
-archivesBaseName = 'stream-video-webrtc-android'
-
-// Ensure the AAR file exists
 def aarFile = file('artifacts/libwebrtc.aar')
 if (!aarFile.exists()) {
-    throw new GradleException("libwebrtc.aar not found in artifacts/ directory. Please place the AAR file there.")
+    throw new GradleException("libwebrtc.aar not found in artifacts/ directory.")
+}
+
+if (project.hasProperty("version")) {
+    project.version = project.property("version")
+} else {
+    project.version = "LOCAL-DEV" // fallback for local builds
 }
 
 afterEvaluate {
     publishing {
         publications {
             release(MavenPublication) {
-                tasks.named("generateMetadataFileForReleasePublication").configure { dependsOn("androidSourcesJar") }
-                groupId project.group
-                artifactId 'stream-video-webrtc-android'
-                version project.version
-                if (project.plugins.findPlugin("com.android.library")) {
-                    from components.release
-                } else {
-                    from components.java
-                }
-
+                groupId = 'io.getstream'
+                artifactId = 'stream-video-webrtc-android'
+                version = project.version
                 artifact aarFile
+                artifact tasks.named("androidSourcesJar")
+                artifact tasks.named("javadocJar")
 
                 pom {
                     name = 'WebRTC Android'
                     description = 'WebRTC library for Android'
                     url = 'https://github.com/GetStream/stream-video-android-webrtc'
-
                     licenses {
                         license {
                             name = 'The BSD 3-Clause License'
                             url = 'https://opensource.org/licenses/BSD-3-Clause'
                         }
                     }
-
                     developers {
                         developer {
                             id = 'getstream'
@@ -104,7 +50,6 @@ afterEvaluate {
                             email = 'support@getstream.io'
                         }
                     }
-
                     scm {
                         connection = 'scm:git:git://github.com/GetStream/stream-video-android-webrtc.git'
                         developerConnection = 'scm:git:ssh://github.com:GetStream/stream-video-android-webrtc.git'
@@ -114,97 +59,33 @@ afterEvaluate {
             }
         }
     }
+
+    signing {
+        required { !project.version.endsWith("-SNAPSHOT") }
+
+        def keyId = rootProject.ext["signing.keyId"]
+        def key = rootProject.ext["signing.key"]
+        def pass = rootProject.ext["signing.password"]
+
+        if (!project.version.endsWith("-SNAPSHOT") && (!key || !pass)) {
+            throw new GradleException("❌ Missing signing credentials for release build!")
+        }
+
+        useInMemoryPgpKeys(keyId, key, pass)
+        sign publishing.publications
+    }
 }
 
-signing {
-    useInMemoryPgpKeys(
-            rootProject.ext["signing.keyId"],
-            rootProject.ext["signing.key"],
-            rootProject.ext["signing.password"],
-    )
-    sign publishing.publications
-}
-
-// Set up Sonatype repository
 nexusPublishing {
-  repositories {
-    sonatype {
-      nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
-      snapshotRepositoryUrl.set(uri("https://central.sonatype.com/repository/maven-snapshots/"))
-      stagingProfileId = sonatypeStagingProfileId
-      username = ossrhUsername
-      password = ossrhPassword
-      version = rootVersionName
-    }
-  }
-}
-
-
-
-// Task to verify the AAR file
-task verifyAar {
-    description = 'Verifies that the libwebrtc.aar file exists and is valid'
-    group = 'verification'
-    
-    doLast {
-        if (!aarFile.exists()) {
-            throw new GradleException("libwebrtc.aar not found at ${aarFile.absolutePath}")
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://central.sonatype.com/repository/maven-snapshots/"))
+            stagingProfileId = rootProject.ext["sonatypeStagingProfileId"]
+            username = rootProject.ext["ossrhUsername"]
+            password = rootProject.ext["ossrhPassword"]
         }
-        
-        def fileSize = aarFile.length()
-        println "✓ AAR file found: ${aarFile.name}"
-        println "✓ File size: ${fileSize} bytes"
-        
-        if (fileSize < 1024) {
-            throw new GradleException("AAR file appears to be too small (${fileSize} bytes). It may be corrupted.")
-        }
-        
-        println "✓ AAR file verification passed"
     }
 }
 
-// Task to print all artifacts
-tasks.register("printAllArtifacts") {
-    group = "publishing"
-
-    doLast {
-        println("Project version: ${project.version}")
-        println("Project group: ${project.group}")
-
-        // Try to access publications directly
-        if (project.hasProperty('publishing')) {
-            project.publishing.publications.all { publication ->
-                if (publication instanceof MavenPublication) {
-                    def groupId = publication.groupId
-                    def artifactId = publication.artifactId
-                    def version = publication.version
-                    println("Publication: $groupId:$artifactId:$version")
-                }
-            }
-        } else {
-            println("Publishing extension not available")
-        }
-        
-        // Also print the expected artifact info
-        println("Expected artifact: ${project.group}:${project.archivesBaseName}:${project.version}")
-    }
-}
-
-
-// Configure signing after properties are set
-//afterEvaluate {
-//    if (project.ext['signing.key'] && project.ext['signing.password']) {
-//        signing {
-//            required { !project.version.endsWith('-SNAPSHOT') }
-//            sign publishing.publications.maven
-//
-//            useInMemoryPgpKeys(
-//                project.ext['signing.key'],
-//                project.ext['signing.password']
-//            )
-//        }
-//    }
-//}
-
-// Make verifyAar run before publish
 tasks.publish.dependsOn verifyAar

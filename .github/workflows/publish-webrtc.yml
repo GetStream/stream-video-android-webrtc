@@ -84,9 +84,9 @@ jobs:
           echo "Snapshot: $SNAPSHOT"
           
           if [[ "$version" == *"SNAPSHOT"* ]]; then
-            ./gradlew publishToSonatype
+            ./gradlew -Pversion=$version publishToSonatype
           else
-            ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+            ./gradlew -Pversion=$version publishToSonatype closeAndReleaseSonatypeStagingRepository
           fi
 
       - name: Verify publication
