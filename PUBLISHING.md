@@ -16,7 +16,7 @@ The project now includes:
 
 The project is configured to publish to Maven Central with:
 - **Group ID**: `io.getstream`
-- **Artifact ID**: `stream-video-webrtc-android`
+- **Artifact ID**: `webrtc-android`
 - **Repository**: Sonatype Central (central.sonatype.com)
 
 ### Version Management
@@ -120,7 +120,7 @@ The `gradle.properties` file contains default values that can be overridden.
 
 1. Run the publish workflow with `publish_snapshot: true`
 2. Artifacts are immediately available at:
-   `https://central.sonatype.com/repository/maven-snapshots/io/getstream/stream-video-webrtc-android/`
+   `https://central.sonatype.com/repository/maven-snapshots/io/getstream/webrtc-android/`
 
 ### For Release Versions
 
@@ -135,7 +135,7 @@ Once published, you can use the library in your Android project:
 
 ```gradle
 dependencies {
-    implementation 'io.getstream:stream-video-webrtc-android:130.0.1'
+    implementation 'io.getstream:webrtc-android:130.0.1'
 }
 ```
 
@@ -146,7 +146,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'io.getstream:stream-video-webrtc-android:130.0.1-SNAPSHOT'
+    implementation 'io.getstream:webrtc-android:130.0.1-SNAPSHOT'
 }
 ```
 
