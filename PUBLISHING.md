@@ -35,7 +35,7 @@ git push
 
 The project is configured to publish to Maven Central with:
 - **Group ID**: `io.getstream`
-- **Artifact ID**: `webrtc-android`
+- **Artifact ID**: `stream-video-webrtc-android`
 - **Repository**: Sonatype Central (central.sonatype.com)
 
 ### Version Management
@@ -157,7 +157,7 @@ Once published, you can use the library in your Android project:
 
 ```gradle
 dependencies {
-    implementation 'io.getstream:webrtc-android:130.0.1'
+    implementation 'io.getstream:stream-video-webrtc-android:137.0.1'
 }
 ```
 
@@ -168,7 +168,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'io.getstream:webrtc-android:130.0.1-SNAPSHOT'
+    implementation 'io.getstream:stream-video-webrtc-android:137.0.1-SNAPSHOT'
 }
 ```
 

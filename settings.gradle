@@ -1,4 +1,4 @@
-rootProject.name = 'webrtc-android'
+rootProject.name = 'stream-video-webrtc-android'
 
 // Configure the project
 gradle.settingsEvaluated {

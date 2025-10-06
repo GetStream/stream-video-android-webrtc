@@ -93,16 +93,16 @@ jobs:
       - name: Verify publication
         run: |
           echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:webrtc-android:$version"
+          echo "Published artifact: io.getstream:stream-video-webrtc-android:$version"
           
           # For non-snapshot versions, show staging repository info
           if [ "$SNAPSHOT" != "true" ]; then
             echo ""
             echo "🚀 Release version published and released to Maven Central!"
             echo "The artifact should be available on Maven Central within 10 minutes."
-            echo "Search for: io.getstream:webrtc-android:$version"
+            echo "Search for: io.getstream:stream-video-webrtc-android:$version"
           else
             echo ""
             echo "📦 Snapshot version published!"
-            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/webrtc-android/"
+            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/stream-video-webrtc-android/"
           fi

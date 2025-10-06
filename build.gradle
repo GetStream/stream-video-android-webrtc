@@ -46,7 +46,7 @@ if (snapshot == 'true' || baseVersion.endsWith('-SNAPSHOT')) {
 }
 
 group = 'io.getstream'
-archivesBaseName = 'webrtc-android'
+archivesBaseName = 'stream-video-webrtc-android'
 
 // Ensure the AAR file exists
 def aarFile = file('artifacts/libwebrtc.aar')
@@ -57,7 +57,7 @@ if (!aarFile.exists()) {
 publishing {
     publications {
         maven(MavenPublication) {
-            artifactId 'webrtc-android'
+            artifactId 'stream-video-webrtc-android'
             groupId project.group
             version project.version
             
@@ -148,7 +148,7 @@ tasks.register("printAllArtifacts") {
         println("Project version: ${project.version}")
         println("Project group: ${project.group}")
         println("Archives base name: ${project.archivesBaseName}")
-        
+
         // Try to access publications directly
         if (project.hasProperty('publishing')) {
             project.publishing.publications.all { publication ->
