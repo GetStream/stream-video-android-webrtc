@@ -5,3 +5,12 @@ gradle.settingsEvaluated {
     println "Configuring WebRTC Android publishing project"
     println "Project name: ${rootProject.name}"
 }
+
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+
