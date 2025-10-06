@@ -6,6 +6,33 @@ plugins {
 
 import java.text.SimpleDateFormat
 
+tasks.register('androidSourcesJar', Jar) {
+    archiveClassifier.set('sources')
+    if (project.plugins.findPlugin("com.android.library")) {
+        from android.sourceSets.main.java.srcDirs
+        from android.sourceSets.main.kotlin.srcDirs
+    } else {
+        from sourceSets.main.java.srcDirs
+        from sourceSets.main.kotlin.srcDirs
+    }
+}
+
+tasks.withType(dokkaHtmlPartial.getClass()).configureEach {
+    pluginsMapConfiguration.set(
+            ["org.jetbrains.dokka.base.DokkaBase": """{ "separateInheritedMembers": true}"""]
+    )
+}
+
+task javadocJar(type: Jar, dependsOn: dokkaJavadoc) {
+    archiveClassifier.set('javadoc')
+    from dokkaJavadoc.outputDirectory
+}
+
+artifacts {
+    archives androidSourcesJar
+    archives javadocJar
+}
+
 // Create variables with empty default values
 ext["ossrhUsername"] = ''
 ext["ossrhPassword"] = ''
@@ -32,20 +59,8 @@ if (secretPropsFile.exists()) {
   ext["snapshot"] = System.getenv('SNAPSHOT')
 }
 
-// Version management
-def baseVersion = project.findProperty('version') ?: '1.0.0'
-def timestamp = new SimpleDateFormat('yyyyMMddHHmm').with {
-    timeZone = TimeZone.getTimeZone('UTC')               // keep CI & local builds identical
-    format(new Date())
-}
-
-if (snapshot == 'true' || baseVersion.endsWith('-SNAPSHOT')) {
-    version = "${baseVersion.replace('-SNAPSHOT', '')}-${timestamp}-SNAPSHOT"
-} else {
-    version = baseVersion
-}
-
 group = 'io.getstream'
+def rootVersionName = project.findProperty('version')
 archivesBaseName = 'stream-video-webrtc-android'
 
 // Ensure the AAR file exists
@@ -54,43 +69,60 @@ if (!aarFile.exists()) {
     throw new GradleException("libwebrtc.aar not found in artifacts/ directory. Please place the AAR file there.")
 }
 
-publishing {
-    publications {
-        maven(MavenPublication) {
-            artifactId 'stream-video-webrtc-android'
-            groupId project.group
-            version project.version
-            
-            artifact aarFile
-            
-            pom {
-                name = 'WebRTC Android'
-                description = 'WebRTC library for Android'
-                url = 'https://github.com/GetStream/stream-video-android-webrtc'
-                
-                licenses {
-                    license {
-                        name = 'The BSD 3-Clause License'
-                        url = 'https://opensource.org/licenses/BSD-3-Clause'
-                    }
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                tasks.named("generateMetadataFileForReleasePublication").configure { dependsOn("androidSourcesJar") }
+                groupId project.group
+                artifactId 'stream-video-webrtc-android'
+                version project.version
+                if (project.plugins.findPlugin("com.android.library")) {
+                    from components.release
+                } else {
+                    from components.java
                 }
-                
-                developers {
-                    developer {
-                        id = 'getstream'
-                        name = 'GetStream'
-                        email = 'support@getstream.io'
-                    }
-                }
-                
-                scm {
-                    connection = 'scm:git:git://github.com/GetStream/stream-video-android-webrtc.git'
-                    developerConnection = 'scm:git:ssh://github.com:GetStream/stream-video-android-webrtc.git'
+
+                artifact aarFile
+
+                pom {
+                    name = 'WebRTC Android'
+                    description = 'WebRTC library for Android'
                     url = 'https://github.com/GetStream/stream-video-android-webrtc'
+
+                    licenses {
+                        license {
+                            name = 'The BSD 3-Clause License'
+                            url = 'https://opensource.org/licenses/BSD-3-Clause'
+                        }
+                    }
+
+                    developers {
+                        developer {
+                            id = 'getstream'
+                            name = 'GetStream'
+                            email = 'support@getstream.io'
+                        }
+                    }
+
+                    scm {
+                        connection = 'scm:git:git://github.com/GetStream/stream-video-android-webrtc.git'
+                        developerConnection = 'scm:git:ssh://github.com:GetStream/stream-video-android-webrtc.git'
+                        url = 'https://github.com/GetStream/stream-video-android-webrtc'
+                    }
                 }
             }
         }
     }
+}
+
+signing {
+    useInMemoryPgpKeys(
+            rootProject.ext["signing.keyId"],
+            rootProject.ext["signing.key"],
+            rootProject.ext["signing.password"],
+    )
+    sign publishing.publications
 }
 
 // Set up Sonatype repository
@@ -102,21 +134,12 @@ nexusPublishing {
       stagingProfileId = sonatypeStagingProfileId
       username = ossrhUsername
       password = ossrhPassword
+      version = rootVersionName
     }
   }
 }
 
 
-// Task to download AAR from build workflow artifact
-task downloadAar {
-    description = 'Downloads the libwebrtc.aar artifact from the build workflow'
-    group = 'build'
-    
-    doLast {
-        println "This task is a placeholder. The AAR should be downloaded by the GitHub Actions workflow."
-        println "Expected location: ${aarFile.absolutePath}"
-    }
-}
 
 // Task to verify the AAR file
 task verifyAar {
@@ -147,7 +170,6 @@ tasks.register("printAllArtifacts") {
     doLast {
         println("Project version: ${project.version}")
         println("Project group: ${project.group}")
-        println("Archives base name: ${project.archivesBaseName}")
 
         // Try to access publications directly
         if (project.hasProperty('publishing')) {
@@ -170,19 +192,19 @@ tasks.register("printAllArtifacts") {
 
 
 // Configure signing after properties are set
-afterEvaluate {
-    if (project.ext['signing.key'] && project.ext['signing.password']) {
-        signing {
-            required { !project.version.endsWith('-SNAPSHOT') }
-            sign publishing.publications.maven
-            
-            useInMemoryPgpKeys(
-                project.ext['signing.key'],
-                project.ext['signing.password']
-            )
-        }
-    }
-}
+//afterEvaluate {
+//    if (project.ext['signing.key'] && project.ext['signing.password']) {
+//        signing {
+//            required { !project.version.endsWith('-SNAPSHOT') }
+//            sign publishing.publications.maven
+//
+//            useInMemoryPgpKeys(
+//                project.ext['signing.key'],
+//                project.ext['signing.password']
+//            )
+//        }
+//    }
+//}
 
 // Make verifyAar run before publish
 tasks.publish.dependsOn verifyAar
