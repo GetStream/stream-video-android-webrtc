@@ -13,8 +13,15 @@ ext["signing.password"] = System.getenv('SIGNING_PASSWORD') ?: ''
 ext["signing.key"] = System.getenv('SIGNING_KEY') ?: ''
 
 def aarFile = file('artifacts/libwebrtc.aar')
-if (!aarFile.exists()) {
-    throw new GradleException("libwebrtc.aar not found in artifacts/ directory.")
+
+tasks.register('verifyAar') {
+    doLast {
+        if (!aarFile.exists()) {
+            throw new GradleException("libwebrtc.aar not found in artifacts/ directory.")
+        }
+        println "✅ AAR file verified: ${aarFile.absolutePath}"
+        println "   Size: ${aarFile.length()} bytes"
+    }
 }
 
 if (project.hasProperty("version")) {
@@ -25,13 +32,10 @@ if (project.hasProperty("version")) {
 
 tasks.register('androidSourcesJar', Jar) {
     archiveClassifier.set('sources')
-    if (project.plugins.findPlugin("com.android.library")) {
-        from android.sourceSets.main.java.srcDirs
-        from android.sourceSets.main.kotlin.srcDirs
-    } else {
-        from sourceSets.main.java.srcDirs
-        from sourceSets.main.kotlin.srcDirs
-    }
+    // This project only contains pre-built AAR artifacts, no source code
+    // Create an empty sources jar to satisfy Maven Central requirements
+    from file('artifacts/')
+    includeEmptyDirs = false
 }
 
 tasks.withType(org.jetbrains.dokka.gradle.DokkaTask).configureEach {
@@ -90,12 +94,23 @@ afterEvaluate {
         def key = rootProject.ext["signing.key"]
         def pass = rootProject.ext["signing.password"]
 
-        if (!project.version.endsWith("-SNAPSHOT") && (!key || !pass)) {
-            throw new GradleException("❌ Missing signing credentials for release build!")
-        }
-
         useInMemoryPgpKeys(keyId, key, pass)
         sign publishing.publications
+    }
+
+    // Validate signing credentials only when signing task is executed
+    tasks.withType(Sign).configureEach {
+        doFirst {
+            if (!project.version.endsWith("-SNAPSHOT")) {
+                def keyId = rootProject.ext["signing.keyId"]
+                def key = rootProject.ext["signing.key"]
+                def pass = rootProject.ext["signing.password"]
+                
+                if (!key || !pass) {
+                    throw new GradleException("❌ Missing signing credentials for release build!")
+                }
+            }
+        }
     }
 }
 
