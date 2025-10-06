@@ -34,8 +34,8 @@ The `publish-webrtc.yml` workflow handles the complete publishing process:
 
 ### Triggers
 
-1. **Manual Dispatch**: Run manually with custom version and settings
-2. **Automatic**: Runs after successful completion of the build workflow
+1. **Release Creation**: Automatically runs when you create a release on GitHub
+2. **Manual Dispatch**: Run manually with custom version and settings
 
 ### Required Secrets
 
@@ -124,9 +124,10 @@ The `gradle.properties` file contains default values that can be overridden.
 
 ### For Release Versions
 
-1. Run the publish workflow with `publish_snapshot: false` and a release version (e.g., "1.0.0")
-2. The artifact is automatically published to the staging repository, closed, and released
-3. The artifact will be available on Maven Central within 10 minutes
+1. Create a release on GitHub with a version tag (e.g., "v130.0.1")
+2. The workflow will automatically run and publish the artifact
+3. The artifact is automatically published to the staging repository, closed, and released
+4. The artifact will be available on Maven Central within 10 minutes
 
 ## Usage in Android Projects
 
@@ -134,7 +135,7 @@ Once published, you can use the library in your Android project:
 
 ```gradle
 dependencies {
-    implementation 'io.getstream:webrtc-android:1.0.0'
+    implementation 'io.getstream:webrtc-android:130.0.1'
 }
 ```
 
@@ -145,7 +146,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'io.getstream:webrtc-android:1.0.0-SNAPSHOT'
+    implementation 'io.getstream:webrtc-android:130.0.1-SNAPSHOT'
 }
 ```
 
