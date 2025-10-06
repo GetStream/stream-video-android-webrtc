@@ -9,6 +9,25 @@ The project now includes:
 - `settings.gradle` - Project settings
 - `gradle.properties` - Default configuration (secrets overridden in CI)
 - `gradlew` & `gradle/wrapper/` - Gradle wrapper for consistent builds
+- `artifacts/` - Directory for storing the `libwebrtc.aar` file
+
+## Adding the AAR File
+
+To publish the WebRTC library, you need to place the built AAR file in the repository:
+
+1. Build your WebRTC AAR using your existing build process
+2. Copy the resulting `libwebrtc.aar` file to the `artifacts/` directory
+3. Commit and push the file to the repository
+
+```bash
+# Example: Copy your built AAR to the artifacts directory
+cp /path/to/your/libwebrtc.aar ./artifacts/libwebrtc.aar
+
+# Commit and push
+git add artifacts/libwebrtc.aar
+git commit -m "Add WebRTC AAR for publishing"
+git push
+```
 
 ## Publishing Configuration
 
@@ -61,7 +80,7 @@ SONATYPE_STAGING_PROFILE_ID  # Sonatype staging profile ID
 ### Prerequisites
 
 - Java 8 or higher
-- The `libwebrtc.aar` file from the build workflow
+- The `libwebrtc.aar` file placed in the `artifacts/` directory
 
 ### Available Tasks
 
@@ -124,10 +143,13 @@ The `gradle.properties` file contains default values that can be overridden.
 
 ### For Release Versions
 
-1. Create a release on GitHub with a version tag (e.g., "v130.0.1")
-2. The workflow will automatically run and publish the artifact
-3. The artifact is automatically published to the staging repository, closed, and released
-4. The artifact will be available on Maven Central within 10 minutes
+1. Build your WebRTC AAR using your existing build process
+2. Place the `libwebrtc.aar` file in the `artifacts/` directory
+3. Commit and push the AAR file to the repository
+4. Create a release on GitHub with a version tag (e.g., "v130.0.1")
+5. The workflow will automatically run and publish the artifact
+6. The artifact is automatically published to the staging repository, closed, and released
+7. The artifact will be available on Maven Central within 10 minutes
 
 ## Usage in Android Projects
 
