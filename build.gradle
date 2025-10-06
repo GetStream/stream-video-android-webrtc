@@ -24,6 +24,22 @@ tasks.register('verifyAar') {
     }
 }
 
+tasks.register('printAllArtifacts') {
+    doLast {
+        println "📦 Artifacts that will be published:"
+        println "   Group ID: io.getstream"
+        println "   Artifact ID: stream-video-webrtc-android"
+        println "   Version: ${project.version}"
+        println ""
+        println "   Main AAR: ${aarFile.absolutePath} (${aarFile.length()} bytes)"
+        println "   Sources JAR: ${tasks.androidSourcesJar.archiveFile.get().asFile.absolutePath}"
+        println "   Javadoc JAR: ${tasks.javadocJar.archiveFile.get().asFile.absolutePath}"
+        println ""
+        println "   Repository: Maven Central (via Sonatype)"
+        println "   Signing: ${project.version.endsWith("-SNAPSHOT") ? "Disabled (SNAPSHOT)" : "Required"}"
+    }
+}
+
 if (project.hasProperty("version")) {
     project.version = project.property("version")
 } else {
