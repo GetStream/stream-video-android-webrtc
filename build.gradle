@@ -106,15 +106,6 @@ nexusPublishing {
   }
 }
 
-signing {
-    required { !project.version.endsWith('-SNAPSHOT') }
-    sign publishing.publications.maven
-    
-    useInMemoryPgpKeys(
-        project.findProperty('signing.key'),
-        project.findProperty('signing.password')
-    )
-}
 
 // Task to download AAR from build workflow artifact
 task downloadAar {
@@ -174,6 +165,22 @@ tasks.register("printAllArtifacts") {
         
         // Also print the expected artifact info
         println("Expected artifact: ${project.group}:${project.archivesBaseName}:${project.version}")
+    }
+}
+
+
+// Configure signing after properties are set
+afterEvaluate {
+    if (project.ext['signing.key'] && project.ext['signing.password']) {
+        signing {
+            required { !project.version.endsWith('-SNAPSHOT') }
+            sign publishing.publications.maven
+            
+            useInMemoryPgpKeys(
+                project.ext['signing.key'],
+                project.ext['signing.password']
+            )
+        }
     }
 }
 
