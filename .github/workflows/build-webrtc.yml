@@ -182,7 +182,6 @@ jobs:
         run: |
           cd /home/runner/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
-            --arch arm64-v8a,armeabi-v7a,x86,x86_64 \
             --extra-gn-args 'treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false' \
             --extra-ninja-switches=-j$(nproc)
 
