@@ -1,12 +1,14 @@
 name: Publish WebRTC to Maven Central
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g., 1.0.0)"
+        description: "Version to publish"
         required: true
-        default: "1.0.0-SNAPSHOT"
+        default: "130.0.1-SNAPSHOT"
       branch:
         description: "Branch name in GetStream/webrtc to use"
         required: true
@@ -16,15 +18,11 @@ on:
         required: false
         default: true
         type: boolean
-  workflow_run:
-    workflows: ["Build WebRTC Android"]
-    types: [completed]
-    branches: [main]
 
 jobs:
   publish:
     runs-on: runner-extra-capacity
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
     
     steps:
       - name: Checkout this repo
@@ -61,8 +59,13 @@ jobs:
           echo "SONATYPE_STAGING_PROFILE_ID=${{ secrets.SONATYPE_STAGING_PROFILE_ID }}" >> $GITHUB_ENV
           
           # Set version and snapshot configuration
-          VERSION="${{ github.event.inputs.version || '1.0.0-SNAPSHOT' }}"
-          SNAPSHOT="${{ github.event.inputs.publish_snapshot == 'true' || github.event.inputs.version.endsWith('-SNAPSHOT') }}"
+          if [ "${{ github.event_name }}" == "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            SNAPSHOT="false"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            SNAPSHOT="${{ github.event.inputs.publish_snapshot == 'true' }}"
+          fi
           
           echo "version=$VERSION" >> $GITHUB_ENV
           echo "SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
@@ -95,16 +98,16 @@ jobs:
       - name: Verify publication
         run: |
           echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:webrtc-android:$version"
+          echo "Published artifact: io.getstream:stream-video-webrtc-android:$version"
           
           # For non-snapshot versions, show staging repository info
           if [ "$SNAPSHOT" != "true" ]; then
             echo ""
             echo "🚀 Release version published and released to Maven Central!"
             echo "The artifact should be available on Maven Central within 10 minutes."
-            echo "Search for: io.getstream:webrtc-android:$version"
+            echo "Search for: io.getstream:stream-video-webrtc-android:$version"
           else
             echo ""
             echo "📦 Snapshot version published!"
-            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/webrtc-android/"
+            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/stream-video-webrtc-android/"
           fi
