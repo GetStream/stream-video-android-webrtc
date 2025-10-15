@@ -75,6 +75,16 @@ jobs:
           echo "Current commit: $(git rev-parse HEAD)"
 
       # -----------------------------
+      # Run package repacking script
+      # -----------------------------
+      - name: Run package repacking script
+        run: |
+          cd /home/runner/webrtc/src
+          chmod +x ${{ github.workspace }}/rename_webrtc_package.sh
+          ${{ github.workspace }}/rename_webrtc_package.sh --no-backup
+          echo "Package repacking script completed"
+
+      # -----------------------------
       # Cache WebRTC dependencies and build outputs
       # -----------------------------
       - name: Cache WebRTC dependencies
@@ -98,6 +108,7 @@ jobs:
           path: |
             /home/runner/webrtc/src/out
             /home/runner/webrtc/src/libwebrtc.aar
+            /home/runner/webrtc/src/libwebrtc-repackaged.aar
           key: webrtc-build-${{ github.event.inputs.branch }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}
           restore-keys: |
             webrtc-build-${{ github.event.inputs.branch }}-
@@ -186,6 +197,20 @@ jobs:
             --extra-ninja-switches=-j$(nproc)
 
       # -----------------------------
+      # Rename AAR to repackaged name
+      # -----------------------------
+      - name: Rename AAR to repackaged name
+        run: |
+          cd /home/runner/webrtc/src
+          if [ -f "libwebrtc.aar" ]; then
+            cp libwebrtc.aar libwebrtc-repackaged.aar
+            echo "Renamed libwebrtc.aar to libwebrtc-repackaged.aar"
+          else
+            echo "Error: libwebrtc.aar not found after build"
+            exit 1
+          fi
+
+      # -----------------------------
       # Print GN args for debugging
       # -----------------------------
       - name: Print GN args
@@ -209,8 +234,8 @@ jobs:
       - name: Upload AAR artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libwebrtc-aar
-          path: /home/runner/webrtc/src/libwebrtc.aar
+          name: libwebrtc-repackaged-aar
+          path: /home/runner/webrtc/src/libwebrtc-repackaged.aar
 
       # -----------------------------
       # Optional: Clean old build outputs
