@@ -1,4 +1,4 @@
-name: Build WebRTC Android
+name: Build Repackaged WebRTC Android
 
 on:
   workflow_dispatch:
