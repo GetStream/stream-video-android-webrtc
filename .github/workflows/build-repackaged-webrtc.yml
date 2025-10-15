@@ -1,0 +1,245 @@
+name: Build WebRTC Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch name in GetStream/webrtc to build"
+        required: true
+        default: "patch/m137.5"
+
+jobs:
+  build:
+    runs-on: runner-extra-capacity
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip openjdk-8-jdk lsb-release software-properties-common
+
+      # -----------------------------
+      # Setup depot_tools (persistent)
+      # -----------------------------
+      - name: Ensure depot_tools exists
+        run: |
+          mkdir -p /home/runner/webrtc
+          cd /home/runner/webrtc
+          if [ ! -d "depot_tools" ]; then
+            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          fi
+          echo "/home/runner/webrtc/depot_tools" >> $GITHUB_PATH
+
+      - name: Verify depot_tools
+        run: |
+          which gclient
+          gclient --version || echo "gclient ready"
+
+
+      # -----------------------------
+      # Update WebRTC repo (persistent)
+      # -----------------------------
+      - name: Update WebRTC repo
+        run: |
+          mkdir -p /home/runner/webrtc
+          cd /home/runner/webrtc
+          if [ ! -d "src" ]; then
+            git clone https://github.com/GetStream/webrtc.git src
+          fi
+          cd src
+          git fetch origin
+          
+          # Check if we're already on the correct branch and up to date
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          if [ "$CURRENT_BRANCH" != "${{ github.event.inputs.branch }}" ]; then
+            echo "Switching from $CURRENT_BRANCH to ${{ github.event.inputs.branch }}"
+            git checkout ${{ github.event.inputs.branch }}
+          else
+            echo "Already on branch ${{ github.event.inputs.branch }}"
+            # Check if we need to pull updates
+            git fetch origin
+            LOCAL=$(git rev-parse HEAD)
+            REMOTE=$(git rev-parse origin/${{ github.event.inputs.branch }})
+            if [ "$LOCAL" != "$REMOTE" ]; then
+              echo "Branch has updates, pulling changes..."
+              git pull origin ${{ github.event.inputs.branch }}
+            else
+              echo "Branch is already up to date"
+            fi
+          fi
+          
+          echo "WebRTC repo updated to branch: ${{ github.event.inputs.branch }}"
+          echo "Current commit: $(git rev-parse HEAD)"
+
+      # -----------------------------
+      # Run package repacking script
+      # -----------------------------
+      - name: Run package repacking script
+        run: |
+          cd /home/runner/webrtc/src
+          chmod +x ${{ github.workspace }}/rename_webrtc_package.sh
+          ${{ github.workspace }}/rename_webrtc_package.sh --no-backup
+          echo "Package repacking script completed"
+
+      # -----------------------------
+      # Cache WebRTC dependencies and build outputs
+      # -----------------------------
+      - name: Cache WebRTC dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/webrtc/.gclient_entries
+            /home/runner/webrtc/.gclient
+            /home/runner/webrtc/src/third_party
+            /home/runner/webrtc/src/build
+            /home/runner/webrtc/src/tools
+            /home/runner/webrtc/src/out
+          key: webrtc-deps-${{ github.event.inputs.branch }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}
+          restore-keys: |
+            webrtc-deps-${{ github.event.inputs.branch }}-
+            webrtc-deps-
+
+      - name: Cache WebRTC build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/webrtc/src/out
+            /home/runner/webrtc/src/libwebrtc.aar
+            /home/runner/webrtc/src/libwebrtc-repackaged.aar
+          key: webrtc-build-${{ github.event.inputs.branch }}-${{ hashFiles('/home/runner/webrtc/src/DEPS') }}
+          restore-keys: |
+            webrtc-build-${{ github.event.inputs.branch }}-
+            webrtc-build-
+
+      # -----------------------------
+      # Check if sync is needed
+      # -----------------------------
+      - name: Check sync status
+        id: sync-check
+        run: |
+          cd /home/runner/webrtc
+          if [ ! -f ".gclient_entries" ]; then
+            echo "needs-sync=true" >> $GITHUB_OUTPUT
+            echo "First run - full sync needed"
+          elif [ ! -f "src/DEPS" ]; then
+            echo "needs-sync=true" >> $GITHUB_OUTPUT
+            echo "DEPS file missing - full sync needed"
+          else
+            # Check if DEPS file has changed
+            if [ ".gclient_entries" -ot "src/DEPS" ]; then
+              echo "needs-sync=true" >> $GITHUB_OUTPUT
+              echo "DEPS file changed - full sync needed"
+            else
+              echo "needs-sync=false" >> $GITHUB_OUTPUT
+              echo "DEPS file unchanged - incremental sync"
+            fi
+          fi
+
+      # -----------------------------
+      # Sync dependencies (optimized)
+      # -----------------------------
+      - name: Sync dependencies
+        run: |
+          cd /home/runner/webrtc
+          
+          # Configure gclient if not already configured
+          if [ ! -f ".gclient" ]; then
+            echo "Configuring gclient..."
+            gclient root
+            gclient config --spec 'solutions = [
+              {
+                "name": "src",
+                "url": "https://github.com/GetStream/webrtc.git",
+                "deps_file": "DEPS",
+                "managed": False,
+                "custom_deps": {},
+              },
+            ]
+          target_os = ["android", "unix"]'
+          fi
+          
+          # Perform sync based on status check
+          if [ "${{ steps.sync-check.outputs.needs-sync }}" == "true" ]; then
+            echo "Performing full sync..."
+            gclient sync --jobs=$(nproc) --no-history --shallow
+          else
+            echo "Performing incremental sync..."
+            gclient sync --jobs=$(nproc) --no-history --shallow --delete_unversioned_trees
+          fi
+          
+          echo "Sync completed successfully"
+
+      # -----------------------------
+      # Install WebRTC build deps
+      # -----------------------------
+      - name: Install WebRTC build deps
+        run: |
+          cd /home/runner/webrtc/src
+          # Only install if not already installed
+          if [ ! -f "/home/runner/.webrtc-deps-installed" ]; then
+            ./build/install-build-deps.sh
+            touch /home/runner/.webrtc-deps-installed
+          else
+            echo "Build dependencies already installed, skipping..."
+          fi
+
+      # -----------------------------
+      # Build WebRTC AAR
+      # -----------------------------
+      - name: Build WebRTC AAR
+        run: |
+          cd /home/runner/webrtc/src
+          python3 ./tools_webrtc/android/build_aar.py \
+            --extra-gn-args 'treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false' \
+            --extra-ninja-switches=-j$(nproc)
+
+      # -----------------------------
+      # Rename AAR to repackaged name
+      # -----------------------------
+      - name: Rename AAR to repackaged name
+        run: |
+          cd /home/runner/webrtc/src
+          if [ -f "libwebrtc.aar" ]; then
+            cp libwebrtc.aar libwebrtc-repackaged.aar
+            echo "Renamed libwebrtc.aar to libwebrtc-repackaged.aar"
+          else
+            echo "Error: libwebrtc.aar not found after build"
+            exit 1
+          fi
+
+      # -----------------------------
+      # Print GN args for debugging
+      # -----------------------------
+      - name: Print GN args
+        run: |
+          cd /home/runner/webrtc/src
+          echo "=== EXISTING GN ARGS IN BUILD DIR ==="
+          # Check if build directory exists and print existing args
+          if [ -d "out/Release" ]; then
+            echo "Found existing build directory, printing GN args:"
+            gn args out/Release --list 2>/dev/null || echo "Could not read GN args from existing build"
+          else
+            echo "No existing build directory found"
+          fi
+          echo ""
+          echo "=== CUSTOM GN ARGS WE'RE ADDING ==="
+          echo "Architectures: arm64-v8a, armeabi-v7a, x86, x86_64"
+          echo "Custom Args: treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false"
+          echo "Ninja Switches: -j$(nproc)"
+          echo "================================"
+
+      - name: Upload AAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libwebrtc-repackaged-aar
+          path: /home/runner/webrtc/src/libwebrtc-repackaged.aar
+
+      # -----------------------------
+      # Optional: Clean old build outputs
+      # -----------------------------
+      - name: Clean old builds (>14 days)
+        run: |
+          find /home/runner/webrtc/out -type d -mtime +14 -exec rm -rf {} + 2>/dev/null || true
