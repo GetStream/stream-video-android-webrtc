@@ -6,4 +6,5 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'stream-video-webrtc-android'
+rootProject.name = "stream-video-webrtc-android"
+

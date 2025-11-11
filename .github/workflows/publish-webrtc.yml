@@ -8,7 +8,6 @@ on:
       version:
         description: "Version to publish"
         required: true
-        default: "137.0.1-SNAPSHOT"
       publish_snapshot:
         description: "Publish as snapshot version"
         required: true
@@ -19,15 +18,15 @@ jobs:
   publish:
     runs-on: runner-extra-capacity
     if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
-    
+
     steps:
       - name: Checkout this repo
         uses: actions/checkout@v4
 
-      - name: Set up JDK 8
+      - name: Set up JDK 11
         uses: actions/setup-java@v4
         with:
-          java-version: '8'
+          java-version: '11'
           distribution: 'temurin'
 
       - name: Verify AAR artifact
@@ -39,23 +38,14 @@ jobs:
           fi
           echo "AAR artifact found: $(ls -la ./artifacts/libwebrtc.aar)"
 
-      - name: Configure environment variables
+      - name: Set version and snapshot variables
         run: |
-          # Set environment variables for the Gradle build
-          echo "OSSRH_USERNAME=${{ secrets.OSSRH_USERNAME }}" >> $GITHUB_ENV
-          echo "OSSRH_PASSWORD=${{ secrets.OSSRH_PASSWORD }}" >> $GITHUB_ENV
-          echo "SIGNING_KEY_ID=${{ secrets.SIGNING_KEY_ID }}" >> $GITHUB_ENV
-          echo "SIGNING_PASSWORD=${{ secrets.SIGNING_PASSWORD }}" >> $GITHUB_ENV
-          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> $GITHUB_ENV
-          echo "SONATYPE_STAGING_PROFILE_ID=${{ secrets.SONATYPE_STAGING_PROFILE_ID }}" >> $GITHUB_ENV
-          
-          # Set version and snapshot configuration
           if [ "${{ github.event_name }}" == "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
             SNAPSHOT="false"
           else
             VERSION="${{ github.event.inputs.version }}"
-            SNAPSHOT="${{ github.event.inputs.publish_snapshot == 'true' }}"
+            SNAPSHOT="${{ github.event.inputs.publish_snapshot }}"
           fi
           
           echo "version=$VERSION" >> $GITHUB_ENV
@@ -74,20 +64,28 @@ jobs:
           echo "Snapshot mode: $SNAPSHOT"
 
       - name: Print artifacts to be published
+        env:
+          ORG_GRADLE_PROJECT_version: ${{ env.version }}
+          ORG_GRADLE_PROJECT_SNAPSHOT: ${{ env.SNAPSHOT }}
         run: |
           echo "Artifacts to be published:"
           ./gradlew printAllArtifacts
 
       - name: Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.OSSRH_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.OSSRH_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_RELEASE_SIGNING_ENABLED: true
+          ORG_GRADLE_PROJECT_version: ${{ env.version }}
+          ORG_GRADLE_PROJECT_SNAPSHOT: ${{ env.SNAPSHOT }}
         run: |
           echo "Version: $version"
           echo "Snapshot: $SNAPSHOT"
           
-          if [[ "$version" == *"SNAPSHOT"* ]]; then
-            ./gradlew -Pversion=$version publishToSonatype
-          else
-            ./gradlew -Pversion=$version publishToSonatype closeAndReleaseSonatypeStagingRepository
-          fi
+          ./gradlew publishToMavenCentral
 
       - name: Verify publication
         run: |
