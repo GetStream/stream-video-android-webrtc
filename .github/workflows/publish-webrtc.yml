@@ -31,12 +31,12 @@ jobs:
 
       - name: Verify AAR artifact
         run: |
-          if [ ! -f "./artifacts/libwebrtc.aar" ]; then
-            echo "Error: libwebrtc.aar not found in artifacts directory"
-            echo "Please place the libwebrtc.aar file in the artifacts/ directory"
+          if [ ! -f "./artifacts/libwebrtc_repackaged.aar" ]; then
+            echo "Error: libwebrtc_repackaged.aar not found in artifacts directory"
+            echo "Please place the libwebrtc_repackaged.aar file in the artifacts/ directory"
             exit 1
           fi
-          echo "AAR artifact found: $(ls -la ./artifacts/libwebrtc.aar)"
+          echo "AAR artifact found: $(ls -la ./artifacts/libwebrtc_repackaged.aar)"
 
       - name: Set version and snapshot variables
         run: |
@@ -90,16 +90,16 @@ jobs:
       - name: Verify publication
         run: |
           echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:stream-video-webrtc-android:$version"
+          echo "Published artifact: io.getstream:stream-video-webrtc-android-repackaged:$version"
           
           # For non-snapshot versions, show staging repository info
           if [ "$SNAPSHOT" != "true" ]; then
             echo ""
             echo "🚀 Release version published and released to Maven Central!"
             echo "The artifact should be available on Maven Central within 10 minutes."
-            echo "Search for: io.getstream:stream-video-webrtc-android:$version"
+            echo "Search for: io.getstream:stream-video-webrtc-android-repackaged:$version"
           else
             echo ""
             echo "📦 Snapshot version published!"
-            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/stream-video-webrtc-android/"
+            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/stream-video-webrtc-android-repackaged/"
           fi

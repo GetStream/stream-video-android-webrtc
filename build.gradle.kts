@@ -8,12 +8,12 @@ repositories {
     mavenCentral()
 }
 
-val aarFile = file("artifacts/libwebrtc.aar")
+val aarFile = file("artifacts/libwebrtc_repackaged.aar")
 
 tasks.register("verifyAar") {
     doLast {
         if (!aarFile.exists()) {
-            throw GradleException("libwebrtc.aar not found in artifacts/ directory.")
+            throw GradleException("libwebrtc_repackaged.aar not found in artifacts/ directory.")
         }
         println("✅ AAR file verified: ${aarFile.absolutePath}")
         println("   Size: ${aarFile.length()} bytes")
@@ -22,7 +22,7 @@ tasks.register("verifyAar") {
 
 val androidSourcesJar = tasks.register<Jar>("androidSourcesJar") {
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    archiveBaseName.set("stream-video-webrtc-android")
+    archiveBaseName.set("stream-video-webrtc-android-repackaged")
     archiveClassifier.set("sources")
     // This project only contains pre-built AAR artifacts, no source code
     // Create an empty sources jar to satisfy Maven Central requirements
@@ -34,7 +34,7 @@ private fun Provider<Jar>.archivePath() = flatMap(Jar::getArchiveFile).get().asF
 
 val javadocJar = tasks.register<Jar>("javadocJar") {
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    archiveBaseName.set("stream-video-webrtc-android")
+    archiveBaseName.set("stream-video-webrtc-android-repackaged")
     archiveClassifier.set("javadoc")
 }
 
@@ -49,7 +49,7 @@ tasks.register("printAllArtifacts") {
 
     println("📦 Artifacts that will be published:")
     println("   Group ID: io.getstream")
-    println("   Artifact ID: stream-video-webrtc-android")
+    println("   Artifact ID: stream-video-webrtc-android-repackaged")
     println("   Version: ${project.version}")
     println("")
     println("   Main AAR: ${aarFile.absolutePath} (${aarFile.length()} bytes)")
@@ -69,7 +69,7 @@ mavenPublishing {
 
     coordinates(
         groupId = "io.getstream",
-        artifactId = "stream-video-webrtc-android",
+        artifactId = "stream-video-webrtc-android-repackaged",
         version = project.version.toString()
     )
 
