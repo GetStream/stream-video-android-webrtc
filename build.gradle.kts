@@ -1,5 +1,6 @@
 plugins {
     id("com.vanniktech.maven.publish") version "0.34.0"
+    id("signing")
 }
 
 repositories {
@@ -63,10 +64,6 @@ tasks.register("printAllArtifacts") {
 mavenPublishing {
     publishToMavenCentral(automaticRelease = true)
 
-    if (!isSnapshot) {
-         signAllPublications()
-    }
-
     coordinates(
         groupId = "io.getstream",
         artifactId = "stream-video-webrtc-android-repackaged",
@@ -110,6 +107,13 @@ afterEvaluate {
             artifact(aarFile)
             artifact(androidSourcesJar)
             artifact(javadocJar)
+        }
+    }
+    
+    // Configure signing conditionally using standard Gradle signing plugin
+    if (!isSnapshot) {
+        signing {
+            sign(publishing.publications)
         }
     }
 }
