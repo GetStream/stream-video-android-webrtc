@@ -6,7 +6,7 @@ on:
       branch:
         description: "Branch name in GetStream/webrtc to build"
         required: true
-        default: "patch/m137.5"
+        default: "pratim/m145_fixes"
 
 jobs:
   build:
@@ -182,8 +182,8 @@ jobs:
         run: |
           cd /home/runner/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
-            --extra-gn-args 'treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false' \
-            --extra-ninja-switches=-j$(nproc)
+            --extra-gn-args 'treat_warnings_as_errors=false rtc_include_tests=false rtc_build_examples=false' \
+            --extra-ninja-switches -local_jobs $(nproc)
 
       # -----------------------------
       # Print GN args for debugging
@@ -202,8 +202,8 @@ jobs:
           echo ""
           echo "=== CUSTOM GN ARGS WE'RE ADDING ==="
           echo "Architectures: arm64-v8a, armeabi-v7a, x86, x86_64"
-          echo "Custom Args: treat_warnings_as_errors=false rtc_enable_vp9=true rtc_enable_vp9_svc=true rtc_include_tests=false rtc_build_examples=false"
-          echo "Ninja Switches: -j$(nproc)"
+          echo "Custom Args: treat_warnings_as_errors=false rtc_include_tests=false rtc_build_examples=false"
+          echo "Ninja Switches: -local_jobs $(nproc)"
           echo "================================"
 
       - name: Upload AAR artifact
