@@ -184,6 +184,25 @@ jobs:
           python3 ./tools_webrtc/android/build_aar.py \
             --extra-gn-args 'treat_warnings_as_errors=false rtc_include_tests=false rtc_build_examples=false'
 
+      - name: Print build errors
+        if: failure()
+        run: |
+          cd /home/runner/webrtc/src
+          echo "=== SISO OUTPUT ==="
+          for dir in out_aar/*/; do
+            if [ -f "${dir}siso_output" ]; then
+              echo "--- ${dir}siso_output ---"
+              cat "${dir}siso_output"
+            fi
+          done
+          echo "=== FAILED COMMANDS ==="
+          for dir in out_aar/*/; do
+            if [ -f "${dir}siso_failed_commands.sh" ]; then
+              echo "--- ${dir}siso_failed_commands.sh ---"
+              cat "${dir}siso_failed_commands.sh"
+            fi
+          done
+
       # -----------------------------
       # Print GN args for debugging
       # -----------------------------
