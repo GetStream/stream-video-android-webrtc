@@ -182,6 +182,7 @@ jobs:
         run: |
           cd /home/runner/webrtc/src
           python3 ./tools_webrtc/android/build_aar.py \
+            --arch arm64-v8a \
             --extra-gn-args 'treat_warnings_as_errors=false rtc_include_tests=false rtc_build_examples=false'
 
       - name: Print build errors
