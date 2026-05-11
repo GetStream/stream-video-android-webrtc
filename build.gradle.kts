@@ -1,5 +1,3 @@
-import com.vanniktech.maven.publish.SonatypeHost
-
 plugins {
     id("com.vanniktech.maven.publish") version "0.34.0"
 }
@@ -63,10 +61,9 @@ tasks.register("printAllArtifacts") {
 }
 
 mavenPublishing {
-    if (isSnapshot) {
-        publishToMavenCentral(SonatypeHost.S01)
-    } else {
-        publishToMavenCentral(automaticRelease = true)
+    publishToMavenCentral(automaticRelease = !isSnapshot)
+
+    if (!isSnapshot) {
         signAllPublications()
     }
 
