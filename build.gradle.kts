@@ -61,10 +61,11 @@ tasks.register("printAllArtifacts") {
 }
 
 mavenPublishing {
-    publishToMavenCentral(automaticRelease = true)
-
-    if (!isSnapshot) {
-         signAllPublications()
+    if (isSnapshot) {
+        publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.S01)
+    } else {
+        publishToMavenCentral(automaticRelease = true)
+        signAllPublications()
     }
 
     coordinates(
