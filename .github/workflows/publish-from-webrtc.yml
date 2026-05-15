@@ -33,12 +33,13 @@ jobs:
           java-version: "11"
           distribution: "temurin"
 
-      # Validate the upstream release URL, extract its tag, sanitize it into the publish version,
-      # and build the libwebrtc.aar download URL from the original upstream tag.
+      # Validate the upstream release URL, extract its tag, sanitize it into the base version,
+      # derive the published version, and build the libwebrtc.aar download URL from the upstream tag.
       - name: Resolve WebRTC release
         id: resolve_webrtc_release
         env:
           WEBRTC_RELEASE_URL: ${{ inputs.webrtc_release_url }}
+          PRE_RELEASE: ${{ inputs.pre_release }}
         run: |
           python3 <<'PY'
           import os
@@ -61,17 +62,22 @@ jobs:
           if not version:
               raise SystemExit("WebRTC release tag could not be converted into a version")
 
+          published_version = version
+          if os.environ["PRE_RELEASE"].lower() == "true" and not published_version.endswith("-SNAPSHOT"):
+              published_version = f"{published_version}-SNAPSHOT"
+
           download_url = f"https://github.com/GetStream/webrtc/releases/download/{tag}/libwebrtc.aar"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"tag={tag}\n")
               output.write(f"version={version}\n")
+              output.write(f"published_version={published_version}\n")
               output.write(f"download_url={download_url}\n")
           PY
 
-      # Fail before downloading or publishing if this version has already been tagged.
+      # Fail before downloading or publishing if this published version has already been tagged.
       - name: Check release tag does not exist
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
+          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
             echo "Tag $VERSION already exists"
@@ -89,7 +95,7 @@ jobs:
       # Persist the downloaded AAR in this repository before running the Maven publication.
       - name: Commit AAR artifact
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
+          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
         run: |
           git add artifacts/libwebrtc.aar
           if git diff --cached --quiet; then
@@ -118,11 +124,7 @@ jobs:
         run: |
           VERSION="${{ steps.resolve_webrtc_release.outputs.version }}"
           SNAPSHOT="${{ inputs.pre_release }}"
-          PUBLISHED_VERSION="$VERSION"
-
-          if [ "$SNAPSHOT" == "true" ]; then
-            PUBLISHED_VERSION="$VERSION-SNAPSHOT"
-          fi
+          PUBLISHED_VERSION="${{ steps.resolve_webrtc_release.outputs.published_version }}"
 
           echo "version=$VERSION" >> $GITHUB_ENV
           echo "SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
@@ -203,7 +205,7 @@ jobs:
       # Tag the committed AAR after Maven publication and the best-effort availability check.
       - name: Create release tag
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
+          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
         run: |
           git tag "$VERSION"
           git push origin "refs/tags/$VERSION"
