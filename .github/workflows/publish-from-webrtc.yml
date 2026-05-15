@@ -57,10 +57,29 @@ jobs:
           if not tag or "/" in tag:
               raise SystemExit("WebRTC release URL must include a tag")
 
-          version = tag.removeprefix("v")
-          version = re.sub(r"[^0-9A-Za-z.-]+", "-", version).strip("-")
-          if not version:
+          sanitized_tag = tag.removeprefix("v")
+          sanitized_tag = re.sub(r"[^0-9A-Za-z.-]+", "-", sanitized_tag).strip("-")
+          if not sanitized_tag:
               raise SystemExit("WebRTC release tag could not be converted into a version")
+
+          match = re.fullmatch(r"([0-9]+(?:\.[0-9]+){0,2})(?:-([0-9A-Za-z.-]+))?", sanitized_tag)
+          if not match:
+              raise SystemExit(
+                  "WebRTC release tag could not be converted into a SemVer version with major.minor.patch"
+              )
+
+          core_parts = [str(int(part)) for part in match.group(1).split(".")]
+          version = ".".join(core_parts + ["0"] * (3 - len(core_parts)))
+          prerelease = match.group(2)
+          if prerelease:
+              prerelease_parts = prerelease.split(".")
+              has_invalid_prerelease = any(
+                  not part or (part.isdigit() and len(part) > 1 and part.startswith("0"))
+                  for part in prerelease_parts
+              )
+              if has_invalid_prerelease:
+                  raise SystemExit("WebRTC release tag prerelease suffix is not SemVer-compatible")
+              version = f"{version}-{prerelease}"
 
           published_version = version
           if os.environ["PRE_RELEASE"].lower() == "true" and not published_version.endswith("-SNAPSHOT"):
