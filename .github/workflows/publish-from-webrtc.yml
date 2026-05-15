@@ -1,4 +1,4 @@
-name: Publish WebRTC to Maven Central
+name: Publish from WebRTC
 
 on:
   workflow_dispatch:
