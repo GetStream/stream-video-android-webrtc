@@ -165,7 +165,42 @@ jobs:
 
           ./gradlew publishToMavenCentral
 
-      # Tag the committed AAR only after Maven publication has completed successfully.
+      # Give Maven Central a chance to serve the published artifact before tagging the release.
+      - name: Wait for Maven artifact availability
+        run: |
+          GROUP_PATH="io/getstream"
+          ARTIFACT_ID="stream-video-webrtc-android"
+          TIMEOUT_SECONDS=600
+          INTERVAL_SECONDS=30
+          DEADLINE=$((SECONDS + TIMEOUT_SECONDS))
+
+          if [ "$SNAPSHOT" == "true" ]; then
+            MAVEN_URL="https://central.sonatype.com/repository/maven-snapshots/$GROUP_PATH/$ARTIFACT_ID/$published_version/maven-metadata.xml"
+            echo "Waiting for snapshot metadata: $MAVEN_URL"
+          else
+            MAVEN_URL="https://repo1.maven.org/maven2/$GROUP_PATH/$ARTIFACT_ID/$published_version/$ARTIFACT_ID-$published_version.aar"
+            echo "Waiting for release artifact: $MAVEN_URL"
+          fi
+
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            if [ "$SNAPSHOT" == "true" ]; then
+              if curl --fail --silent --show-error "$MAVEN_URL" | grep -q "<extension>aar</extension>"; then
+                echo "Maven snapshot artifact is available."
+                exit 0
+              fi
+            elif curl --fail --silent --show-error --head "$MAVEN_URL" >/dev/null; then
+              echo "Maven release artifact is available."
+              exit 0
+            fi
+
+            echo "Artifact is not available yet. Retrying in $INTERVAL_SECONDS seconds..."
+            sleep "$INTERVAL_SECONDS"
+          done
+
+          echo "::warning::Timed out after $TIMEOUT_SECONDS seconds waiting for Maven artifact availability."
+          echo "Continuing because Maven Central sync can occasionally take longer."
+
+      # Tag the committed AAR after Maven publication and the best-effort availability check.
       - name: Create release tag
         env:
           VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
@@ -183,7 +218,7 @@ jobs:
           if [ "$SNAPSHOT" != "true" ]; then
             echo ""
             echo "🚀 Release version published and released to Maven Central!"
-            echo "The artifact should be available on Maven Central within 10 minutes."
+            echo "The artifact is available on Maven Central."
             echo "Search for: io.getstream:stream-video-webrtc-android:$published_version"
           else
             echo ""
