@@ -118,13 +118,22 @@ jobs:
         run: |
           VERSION="${{ steps.resolve_webrtc_release.outputs.version }}"
           SNAPSHOT="${{ inputs.pre_release }}"
+          PUBLISHED_VERSION="$VERSION"
+
+          if [ "$SNAPSHOT" == "true" ]; then
+            PUBLISHED_VERSION="$VERSION-SNAPSHOT"
+          fi
 
           echo "version=$VERSION" >> $GITHUB_ENV
           echo "SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
+          echo "published_version=$PUBLISHED_VERSION" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_version=$VERSION" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
 
           echo "Configured environment variables:"
           echo "Version: $VERSION"
           echo "Snapshot: $SNAPSHOT"
+          echo "Published version: $PUBLISHED_VERSION"
 
       # Smoke-check that Gradle can see the configured project and derived publish values.
       - name: Verify Gradle setup
@@ -132,14 +141,11 @@ jobs:
           echo "Verifying Gradle project setup..."
           ./gradlew tasks --all | head -20
           echo ""
-          echo "Project version: $version"
+          echo "Project version: $published_version"
           echo "Snapshot mode: $SNAPSHOT"
 
       # Show the exact artifacts and coordinates Gradle is about to publish.
       - name: Print artifacts to be published
-        env:
-          ORG_GRADLE_PROJECT_version: ${{ steps.resolve_webrtc_release.outputs.version }}
-          ORG_GRADLE_PROJECT_SNAPSHOT: ${{ inputs.pre_release }}
         run: |
           echo "Artifacts to be published:"
           ./gradlew printAllArtifacts
@@ -153,15 +159,48 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_RELEASE_SIGNING_ENABLED: true
-          ORG_GRADLE_PROJECT_version: ${{ steps.resolve_webrtc_release.outputs.version }}
-          ORG_GRADLE_PROJECT_SNAPSHOT: ${{ inputs.pre_release }}
         run: |
-          echo "Version: $version"
+          echo "Version: $published_version"
           echo "Snapshot: $SNAPSHOT"
 
           ./gradlew publishToMavenCentral
 
-      # Tag the committed AAR only after Maven publication has completed successfully.
+      # Give Maven Central a chance to serve the published artifact before tagging the release.
+      - name: Wait for Maven artifact availability
+        run: |
+          GROUP_PATH="io/getstream"
+          ARTIFACT_ID="stream-video-webrtc-android"
+          TIMEOUT_SECONDS=600
+          INTERVAL_SECONDS=30
+          DEADLINE=$((SECONDS + TIMEOUT_SECONDS))
+
+          if [ "$SNAPSHOT" == "true" ]; then
+            MAVEN_URL="https://central.sonatype.com/repository/maven-snapshots/$GROUP_PATH/$ARTIFACT_ID/$published_version/maven-metadata.xml"
+            echo "Waiting for snapshot metadata: $MAVEN_URL"
+          else
+            MAVEN_URL="https://repo1.maven.org/maven2/$GROUP_PATH/$ARTIFACT_ID/$published_version/$ARTIFACT_ID-$published_version.aar"
+            echo "Waiting for release artifact: $MAVEN_URL"
+          fi
+
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            if [ "$SNAPSHOT" == "true" ]; then
+              if curl --fail --silent --show-error "$MAVEN_URL" | grep -q "<extension>aar</extension>"; then
+                echo "Maven snapshot artifact is available."
+                exit 0
+              fi
+            elif curl --fail --silent --show-error --head "$MAVEN_URL" >/dev/null; then
+              echo "Maven release artifact is available."
+              exit 0
+            fi
+
+            echo "Artifact is not available yet. Retrying in $INTERVAL_SECONDS seconds..."
+            sleep "$INTERVAL_SECONDS"
+          done
+
+          echo "::warning::Timed out after $TIMEOUT_SECONDS seconds waiting for Maven artifact availability."
+          echo "Continuing because Maven Central sync can occasionally take longer."
+
+      # Tag the committed AAR after Maven publication and the best-effort availability check.
       - name: Create release tag
         env:
           VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
@@ -173,14 +212,14 @@ jobs:
       - name: Verify publication
         run: |
           echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:stream-video-webrtc-android:$version"
+          echo "Published artifact: io.getstream:stream-video-webrtc-android:$published_version"
 
           # For non-snapshot versions, show staging repository info
           if [ "$SNAPSHOT" != "true" ]; then
             echo ""
             echo "🚀 Release version published and released to Maven Central!"
-            echo "The artifact should be available on Maven Central within 10 minutes."
-            echo "Search for: io.getstream:stream-video-webrtc-android:$version"
+            echo "The artifact is available on Maven Central."
+            echo "Search for: io.getstream:stream-video-webrtc-android:$published_version"
           else
             echo ""
             echo "📦 Snapshot version published!"
