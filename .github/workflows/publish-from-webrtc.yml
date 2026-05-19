@@ -7,7 +7,7 @@ on:
         description: "Upstream GetStream/webrtc release URL, e.g. https://github.com/GetStream/webrtc/releases/tag/145.1"
         required: true
       pre_release:
-        description: "Mark the GitHub release as a pre-release and skip CocoaPods publishing"
+        description: "Mark the GitHub release as a pre-release"
         required: false
         type: boolean
         default: false
