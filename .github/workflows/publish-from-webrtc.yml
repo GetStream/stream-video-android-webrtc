@@ -7,7 +7,7 @@ on:
         description: "Upstream GetStream/webrtc release URL, e.g. https://github.com/GetStream/webrtc/releases/tag/145.1"
         required: true
       pre_release:
-        description: "Mark the GitHub release as a pre-release and skip CocoaPods publishing"
+        description: "Mark the GitHub release as a pre-release"
         required: false
         type: boolean
         default: false
@@ -33,12 +33,13 @@ jobs:
           java-version: "11"
           distribution: "temurin"
 
-      # Validate the upstream release URL, extract its tag, sanitize it into the publish version,
-      # and build the libwebrtc.aar download URL from the original upstream tag.
+      # Validate the upstream release URL, extract its tag, sanitize it into the base version,
+      # derive the published version, and build the libwebrtc.aar download URL from the upstream tag.
       - name: Resolve WebRTC release
         id: resolve_webrtc_release
         env:
           WEBRTC_RELEASE_URL: ${{ inputs.webrtc_release_url }}
+          PRE_RELEASE: ${{ inputs.pre_release }}
         run: |
           python3 <<'PY'
           import os
@@ -56,22 +57,46 @@ jobs:
           if not tag or "/" in tag:
               raise SystemExit("WebRTC release URL must include a tag")
 
-          version = tag.removeprefix("v")
-          version = re.sub(r"[^0-9A-Za-z.-]+", "-", version).strip("-")
-          if not version:
+          sanitized_tag = tag.removeprefix("v")
+          sanitized_tag = re.sub(r"[^0-9A-Za-z.-]+", "-", sanitized_tag).strip("-")
+          if not sanitized_tag:
               raise SystemExit("WebRTC release tag could not be converted into a version")
+
+          match = re.fullmatch(r"([0-9]+(?:\.[0-9]+){0,2})(?:-([0-9A-Za-z.-]+))?", sanitized_tag)
+          if not match:
+              raise SystemExit(
+                  "WebRTC release tag could not be converted into a SemVer version with major.minor.patch"
+              )
+
+          core_parts = [str(int(part)) for part in match.group(1).split(".")]
+          version = ".".join(core_parts + ["0"] * (3 - len(core_parts)))
+          prerelease = match.group(2)
+          if prerelease:
+              prerelease_parts = prerelease.split(".")
+              has_invalid_prerelease = any(
+                  not part or (part.isdigit() and len(part) > 1 and part.startswith("0"))
+                  for part in prerelease_parts
+              )
+              if has_invalid_prerelease:
+                  raise SystemExit("WebRTC release tag prerelease suffix is not SemVer-compatible")
+              version = f"{version}-{prerelease}"
+
+          published_version = version
+          if os.environ["PRE_RELEASE"].lower() == "true" and not published_version.endswith("-SNAPSHOT"):
+              published_version = f"{published_version}-SNAPSHOT"
 
           download_url = f"https://github.com/GetStream/webrtc/releases/download/{tag}/libwebrtc.aar"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"tag={tag}\n")
               output.write(f"version={version}\n")
+              output.write(f"published_version={published_version}\n")
               output.write(f"download_url={download_url}\n")
           PY
 
-      # Fail before downloading or publishing if this version has already been tagged.
+      # Fail before downloading or publishing if this published version has already been tagged.
       - name: Check release tag does not exist
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
+          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
             echo "Tag $VERSION already exists"
@@ -89,7 +114,7 @@ jobs:
       # Persist the downloaded AAR in this repository before running the Maven publication.
       - name: Commit AAR artifact
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
+          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
         run: |
           git add artifacts/libwebrtc.aar
           if git diff --cached --quiet; then
@@ -118,13 +143,18 @@ jobs:
         run: |
           VERSION="${{ steps.resolve_webrtc_release.outputs.version }}"
           SNAPSHOT="${{ inputs.pre_release }}"
+          PUBLISHED_VERSION="${{ steps.resolve_webrtc_release.outputs.published_version }}"
 
           echo "version=$VERSION" >> $GITHUB_ENV
           echo "SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
+          echo "published_version=$PUBLISHED_VERSION" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_version=$VERSION" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
 
           echo "Configured environment variables:"
           echo "Version: $VERSION"
           echo "Snapshot: $SNAPSHOT"
+          echo "Published version: $PUBLISHED_VERSION"
 
       # Smoke-check that Gradle can see the configured project and derived publish values.
       - name: Verify Gradle setup
@@ -132,14 +162,11 @@ jobs:
           echo "Verifying Gradle project setup..."
           ./gradlew tasks --all | head -20
           echo ""
-          echo "Project version: $version"
+          echo "Project version: $published_version"
           echo "Snapshot mode: $SNAPSHOT"
 
       # Show the exact artifacts and coordinates Gradle is about to publish.
       - name: Print artifacts to be published
-        env:
-          ORG_GRADLE_PROJECT_version: ${{ steps.resolve_webrtc_release.outputs.version }}
-          ORG_GRADLE_PROJECT_SNAPSHOT: ${{ inputs.pre_release }}
         run: |
           echo "Artifacts to be published:"
           ./gradlew printAllArtifacts
@@ -153,18 +180,51 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_RELEASE_SIGNING_ENABLED: true
-          ORG_GRADLE_PROJECT_version: ${{ steps.resolve_webrtc_release.outputs.version }}
-          ORG_GRADLE_PROJECT_SNAPSHOT: ${{ inputs.pre_release }}
         run: |
-          echo "Version: $version"
+          echo "Version: $published_version"
           echo "Snapshot: $SNAPSHOT"
 
           ./gradlew publishToMavenCentral
 
-      # Tag the committed AAR only after Maven publication has completed successfully.
+      # Give Maven Central a chance to serve the published artifact before tagging the release.
+      - name: Wait for Maven artifact availability
+        run: |
+          GROUP_PATH="io/getstream"
+          ARTIFACT_ID="stream-video-webrtc-android"
+          TIMEOUT_SECONDS=600
+          INTERVAL_SECONDS=30
+          DEADLINE=$((SECONDS + TIMEOUT_SECONDS))
+
+          if [ "$SNAPSHOT" == "true" ]; then
+            MAVEN_URL="https://central.sonatype.com/repository/maven-snapshots/$GROUP_PATH/$ARTIFACT_ID/$published_version/maven-metadata.xml"
+            echo "Waiting for snapshot metadata: $MAVEN_URL"
+          else
+            MAVEN_URL="https://repo1.maven.org/maven2/$GROUP_PATH/$ARTIFACT_ID/$published_version/$ARTIFACT_ID-$published_version.aar"
+            echo "Waiting for release artifact: $MAVEN_URL"
+          fi
+
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            if [ "$SNAPSHOT" == "true" ]; then
+              if curl --fail --silent --show-error "$MAVEN_URL" | grep -q "<extension>aar</extension>"; then
+                echo "Maven snapshot artifact is available."
+                exit 0
+              fi
+            elif curl --fail --silent --show-error --head "$MAVEN_URL" >/dev/null; then
+              echo "Maven release artifact is available."
+              exit 0
+            fi
+
+            echo "Artifact is not available yet. Retrying in $INTERVAL_SECONDS seconds..."
+            sleep "$INTERVAL_SECONDS"
+          done
+
+          echo "::warning::Timed out after $TIMEOUT_SECONDS seconds waiting for Maven artifact availability."
+          echo "Continuing because Maven Central sync can occasionally take longer."
+
+      # Tag the committed AAR after Maven publication and the best-effort availability check.
       - name: Create release tag
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.version }}
+          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
         run: |
           git tag "$VERSION"
           git push origin "refs/tags/$VERSION"
@@ -173,14 +233,14 @@ jobs:
       - name: Verify publication
         run: |
           echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:stream-video-webrtc-android:$version"
+          echo "Published artifact: io.getstream:stream-video-webrtc-android:$published_version"
 
           # For non-snapshot versions, show staging repository info
           if [ "$SNAPSHOT" != "true" ]; then
             echo ""
             echo "🚀 Release version published and released to Maven Central!"
-            echo "The artifact should be available on Maven Central within 10 minutes."
-            echo "Search for: io.getstream:stream-video-webrtc-android:$version"
+            echo "The artifact is available on Maven Central."
+            echo "Search for: io.getstream:stream-video-webrtc-android:$published_version"
           else
             echo ""
             echo "📦 Snapshot version published!"
