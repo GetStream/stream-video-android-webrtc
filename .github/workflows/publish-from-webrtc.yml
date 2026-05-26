@@ -221,13 +221,29 @@ jobs:
           echo "::warning::Timed out after $TIMEOUT_SECONDS seconds waiting for Maven artifact availability."
           echo "Continuing because Maven Central sync can occasionally take longer."
 
-      # Tag the committed AAR after Maven publication and the best-effort availability check.
-      - name: Create release tag
+      # Publish a GitHub release for the committed AAR. The release tag is created as part of this step.
+      - name: Create GitHub release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
+          UPSTREAM_TAG: ${{ steps.resolve_webrtc_release.outputs.tag }}
+          PRE_RELEASE: ${{ inputs.pre_release }}
         run: |
-          git tag "$VERSION"
-          git push origin "refs/tags/$VERSION"
+          PRERELEASE_FLAG=""
+          if [ "$PRE_RELEASE" == "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          NOTES=$(printf '%s\n\n%s\n' \
+            "Built from upstream [GetStream/webrtc@${UPSTREAM_TAG}](https://github.com/GetStream/webrtc/releases/tag/${UPSTREAM_TAG})." \
+            "Maven coordinate: \`io.getstream:stream-video-webrtc-android:${VERSION}\`")
+
+          gh release create "$VERSION" \
+            artifacts/libwebrtc.aar \
+            --title "$VERSION" \
+            --target "$(git rev-parse HEAD)" \
+            --notes "$NOTES" \
+            $PRERELEASE_FLAG
 
       # Print the final publication summary and Maven Central lookup details.
       - name: Verify publication
