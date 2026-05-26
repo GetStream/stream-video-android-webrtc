@@ -18,6 +18,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: maven-publish
 
     steps:
       # Fetch the repository with full history so the workflow can create and push commits/tags.
