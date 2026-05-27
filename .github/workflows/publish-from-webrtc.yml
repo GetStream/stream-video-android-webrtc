@@ -16,9 +16,45 @@ permissions:
   contents: write
 
 jobs:
+  # Post a "queued for approval" Slack notification before the publish job sits behind the
+  # `maven-publish` environment gate. This job is intentionally ungated so the message lands
+  # immediately and reviewers know there is something to approve.
+  notify-queued:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract upstream tag for display
+        id: tag
+        env:
+          URL: ${{ inputs.webrtc_release_url }}
+        run: |
+          stripped="${URL%%[?#]*}"
+          stripped="${stripped%/}"
+          tag="${stripped##*/}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Posted to #android so the broader team sees the gate, not just the CI channel.
+      - name: Notify Slack — queued for approval
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID }}
+          webhook-type: incoming-webhook
+          errors: true
+          payload: |
+            text: ":hourglass_flowing_sand: WebRTC ${{ steps.tag.outputs.tag }} queued for approval"
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: ":hourglass_flowing_sand: *WebRTC `${{ steps.tag.outputs.tag }}` queued for approval* for `${{ github.repository }}`"
+              - type: "context"
+                elements:
+                  - type: "mrkdwn"
+                    text: "<${{ inputs.webrtc_release_url }}|Upstream release> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Approve in Actions>"
+
   publish:
     runs-on: ubuntu-latest
     environment: maven-publish
+    needs: notify-queued
 
     steps:
       # Fetch the repository with full history so the workflow can create and push commits/tags.
@@ -263,3 +299,41 @@ jobs:
             echo "📦 Snapshot version published!"
             echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/stream-video-webrtc-android/"
           fi
+
+      - name: Notify Slack on publish success
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID_CICD }}
+          webhook-type: incoming-webhook
+          errors: true
+          payload: |
+            text: ":android: Released ${{ steps.resolve_webrtc_release.outputs.published_version }} for ${{ github.repository }}"
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: ":rocket: *Released `${{ steps.resolve_webrtc_release.outputs.published_version }}`* for `${{ github.repository }}`"
+              - type: "context"
+                elements:
+                  - type: "mrkdwn"
+                    text: "<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.resolve_webrtc_release.outputs.published_version }}|Release notes> · <https://central.sonatype.com/artifact/io.getstream/stream-video-webrtc-android/${{ steps.resolve_webrtc_release.outputs.published_version }}|Maven Central> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run>"
+
+      - name: Notify Slack on publish failure
+        if: failure()
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID_CICD }}
+          webhook-type: incoming-webhook
+          errors: true
+          payload: |
+            text: ":x: WebRTC publish failed for ${{ github.repository }}"
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: ":x: *WebRTC publish failed* for `${{ github.repository }}`"
+              - type: "context"
+                elements:
+                  - type: "mrkdwn"
+                    text: "<${{ inputs.webrtc_release_url }}|Upstream release> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
