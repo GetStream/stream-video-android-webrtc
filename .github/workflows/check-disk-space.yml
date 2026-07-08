@@ -3,6 +3,9 @@ name: Check Runner Specs
 on:
   workflow_dispatch:  # This allows you to trigger manually
 
+permissions:
+  contents: read
+
 jobs:
   check-disk:
     runs-on: runner-extra-capacity  # GitHub-hosted runner
