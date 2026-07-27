@@ -8,6 +8,10 @@ on:
         required: true
         default: "pratim/m145_fixes"
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   build:
     runs-on: runner-extra-capacity
