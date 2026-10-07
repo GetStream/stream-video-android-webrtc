@@ -1,5 +1,5 @@
 name: Publish from WebRTC
-run-name: Publish WebRTC Android — ${{ inputs.webrtc_release_url }}
+run-name: Publish WebRTC Android (${{ inputs.variant }}) — ${{ inputs.webrtc_release_url }}
 
 on:
   workflow_dispatch:
@@ -23,6 +23,14 @@ on:
           - streamRepo,central
           - central
         default: streamRepo
+      variant:
+        description: "default publishes libwebrtc.aar as stream-video-webrtc-android. repackaged publishes libwebrtc-repackaged.aar as stream-video-webrtc-android-repackaged."
+        required: false
+        type: choice
+        options:
+          - default
+          - repackaged
+        default: default
 
 permissions:
   contents: write
@@ -52,12 +60,12 @@ jobs:
           webhook-type: incoming-webhook
           errors: true
           payload: |
-            text: ":hourglass_flowing_sand: WebRTC ${{ steps.tag.outputs.tag }} queued for approval"
+            text: ":hourglass_flowing_sand: WebRTC ${{ steps.tag.outputs.tag }} (${{ inputs.variant }}) queued for approval"
             blocks:
               - type: "section"
                 text:
                   type: "mrkdwn"
-                  text: ":hourglass_flowing_sand: *WebRTC `${{ steps.tag.outputs.tag }}` queued for approval* for `${{ github.repository }}`"
+                  text: ":hourglass_flowing_sand: *WebRTC `${{ steps.tag.outputs.tag }}` (`${{ inputs.variant }}`) queued for approval* for `${{ github.repository }}`"
               - type: "context"
                 elements:
                   - type: "mrkdwn"
@@ -71,6 +79,9 @@ jobs:
       published_version: ${{ steps.resolve_webrtc_release.outputs.published_version }}
       tag: ${{ steps.resolve_webrtc_release.outputs.tag }}
       sha: ${{ steps.commit_aar.outputs.sha }}
+      artifact_id: ${{ steps.resolve_webrtc_release.outputs.artifact_id }}
+      asset_name: ${{ steps.resolve_webrtc_release.outputs.asset_name }}
+      release_tag: ${{ steps.resolve_webrtc_release.outputs.release_tag }}
 
     steps:
       # Fetch the repository with full history so the workflow can create and push commits/tags.
@@ -93,6 +104,7 @@ jobs:
         env:
           WEBRTC_RELEASE_URL: ${{ inputs.webrtc_release_url }}
           PRE_RELEASE: ${{ inputs.pre_release }}
+          VARIANT: ${{ inputs.variant }}
         run: |
           python3 <<'PY'
           import os
@@ -100,6 +112,10 @@ jobs:
           from urllib.parse import unquote, urlparse
 
           url = os.environ["WEBRTC_RELEASE_URL"]
+          variant = os.environ["VARIANT"]
+          if variant not in ("default", "repackaged"):
+              raise SystemExit("variant must be default or repackaged")
+
           uri = urlparse(url)
           release_path = "/GetStream/webrtc/releases/tag/"
 
@@ -134,25 +150,49 @@ jobs:
                   raise SystemExit("WebRTC release tag prerelease suffix is not SemVer-compatible")
               version = f"{version}-{prerelease}"
 
+          # A repackaged upstream tag is "<version>-repackaged" so it can sit beside
+          # the stock release. Maven still publishes the unsuffixed version.
+          if variant == "repackaged":
+              if prerelease == "repackaged":
+                  prerelease = None
+              elif prerelease and prerelease.endswith("-repackaged"):
+                  prerelease = prerelease[: -len("-repackaged")] or None
+              version = ".".join(core_parts + ["0"] * (3 - len(core_parts)))
+              if prerelease:
+                  version = f"{version}-{prerelease}"
+
           published_version = version
           if os.environ["PRE_RELEASE"].lower() == "true" and not published_version.endswith("-SNAPSHOT"):
               published_version = f"{published_version}-SNAPSHOT"
 
-          download_url = f"https://github.com/GetStream/webrtc/releases/download/{tag}/libwebrtc.aar"
+          if variant == "repackaged":
+              asset_name = "libwebrtc-repackaged.aar"
+              artifact_id = "stream-video-webrtc-android-repackaged"
+              # Distinct from the stock tag, which is the Maven version itself.
+              release_tag = f"{published_version}-repackaged"
+          else:
+              asset_name = "libwebrtc.aar"
+              artifact_id = "stream-video-webrtc-android"
+              release_tag = published_version
+
+          download_url = f"https://github.com/GetStream/webrtc/releases/download/{tag}/{asset_name}"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"tag={tag}\n")
               output.write(f"version={version}\n")
               output.write(f"published_version={published_version}\n")
               output.write(f"download_url={download_url}\n")
+              output.write(f"asset_name={asset_name}\n")
+              output.write(f"artifact_id={artifact_id}\n")
+              output.write(f"release_tag={release_tag}\n")
           PY
 
       # Fail before downloading or publishing if this published version has already been tagged.
       - name: Check release tag does not exist
         env:
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
+          RELEASE_TAG: ${{ steps.resolve_webrtc_release.outputs.release_tag }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-            echo "Tag $VERSION already exists"
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists"
             exit 1
           fi
 
@@ -161,7 +201,7 @@ jobs:
         run: |
           mkdir -p artifacts
           curl --fail --location --show-error \
-            --output artifacts/libwebrtc.aar \
+            --output "artifacts/${{ steps.resolve_webrtc_release.outputs.asset_name }}" \
             "${{ steps.resolve_webrtc_release.outputs.download_url }}"
 
       # Persist the downloaded AAR in this repository before running the Maven publication.
@@ -169,16 +209,23 @@ jobs:
         id: commit_aar
         env:
           VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
+          ASSET_NAME: ${{ steps.resolve_webrtc_release.outputs.asset_name }}
+          VARIANT: ${{ inputs.variant }}
         run: |
-          git add artifacts/libwebrtc.aar
+          git add "artifacts/$ASSET_NAME"
+          if [ "$VARIANT" = "repackaged" ]; then
+            commit_message="Add repackaged WebRTC AAR $VERSION"
+          else
+            commit_message="Bump version to $VERSION"
+          fi
           if git diff --cached --quiet; then
             git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit --allow-empty -m "Bump version to $VERSION"
+              commit --allow-empty -m "$commit_message"
           else
             git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "Bump version to $VERSION"
+              commit -m "$commit_message"
           fi
           git push origin "HEAD:${GITHUB_REF_NAME}"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -186,12 +233,12 @@ jobs:
       # Confirm the expected AAR exists before invoking Gradle publishing tasks.
       - name: Verify AAR artifact
         run: |
-          if [ ! -f "./artifacts/libwebrtc.aar" ]; then
-            echo "Error: libwebrtc.aar not found in artifacts directory"
-            echo "Please place the libwebrtc.aar file in the artifacts/ directory"
+          asset_name="${{ steps.resolve_webrtc_release.outputs.asset_name }}"
+          if [ ! -f "./artifacts/$asset_name" ]; then
+            echo "Error: $asset_name not found in artifacts directory"
             exit 1
           fi
-          echo "AAR artifact found: $(ls -la ./artifacts/libwebrtc.aar)"
+          echo "AAR artifact found: $(ls -la "./artifacts/$asset_name")"
 
       # Export the sanitized version and snapshot flag for the remaining shell steps.
       - name: Set version and snapshot variables
@@ -209,6 +256,9 @@ jobs:
           echo "ORG_GRADLE_PROJECT_SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
           # An env var rather than -P, so a value with a space cannot split into a second argument.
           echo "ORG_GRADLE_PROJECT_streamPublishTargets=$PUBLISH_TARGETS" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_publishVariant=${{ inputs.variant }}" >> $GITHUB_ENV
+          echo "ARTIFACT_ID=${{ steps.resolve_webrtc_release.outputs.artifact_id }}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${{ steps.resolve_webrtc_release.outputs.release_tag }}" >> $GITHUB_ENV
 
           echo "Configured environment variables:"
           echo "Version: $VERSION"
@@ -251,7 +301,7 @@ jobs:
         if: ${{ contains(inputs.publish-targets, 'central') }}
         run: |
           GROUP_PATH="io/getstream"
-          ARTIFACT_ID="stream-video-webrtc-android"
+          ARTIFACT_ID="${ARTIFACT_ID}"
           TIMEOUT_SECONDS=600
           INTERVAL_SECONDS=30
           DEADLINE=$((SECONDS + TIMEOUT_SECONDS))
@@ -372,6 +422,9 @@ jobs:
       UPSTREAM_TAG: ${{ needs.publish.outputs.tag }}
       PRE_RELEASE: ${{ inputs.pre_release }}
       TARGETS: ${{ inputs.publish-targets }}
+      ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+      ASSET_NAME: ${{ needs.publish.outputs.asset_name }}
+      RELEASE_TAG: ${{ needs.publish.outputs.release_tag }}
     steps:
       - name: Checkout the published commit
         uses: actions/checkout@v4
@@ -393,7 +446,7 @@ jobs:
           if [ "$TARGETS" == "streamRepo" ]; then
             cat > notes.md <<EOF
           > [!IMPORTANT]
-          > **\`$VERSION\` is published to the Stream Maven repository, not Maven Central.**
+          > **\`$ARTIFACT_ID:$VERSION\` is published to the Stream Maven repository, not Maven Central.**
           >
           > \`\`\`kotlin
           > // settings.gradle.kts
@@ -410,11 +463,11 @@ jobs:
           fi
           printf '%s\n\n%s\n' \
             "Built from upstream [GetStream/webrtc@${UPSTREAM_TAG}](https://github.com/GetStream/webrtc/releases/tag/${UPSTREAM_TAG})." \
-            "Maven coordinate: \`io.getstream:stream-video-webrtc-android:${VERSION}\`" >> notes.md
+            "Maven coordinate: \`io.getstream:${ARTIFACT_ID}:${VERSION}\`" >> notes.md
 
-          gh release create "$VERSION" \
-            artifacts/libwebrtc.aar \
-            --title "$VERSION" \
+          gh release create "$RELEASE_TAG" \
+            "artifacts/$ASSET_NAME" \
+            --title "$RELEASE_TAG" \
             --target "${{ needs.publish.outputs.sha }}" \
             --notes-file notes.md \
             $PRERELEASE_FLAG
@@ -422,13 +475,13 @@ jobs:
       - name: Verify publication
         run: |
           echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:stream-video-webrtc-android:$VERSION"
+          echo "Published artifact: io.getstream:$ARTIFACT_ID:$VERSION"
           echo "Targets: $TARGETS"
           if [[ "$TARGETS" == *streamRepo* ]]; then
             echo "Stream repository: https://browse.stream-io-repo.com/"
           fi
           if [[ "$TARGETS" == *central* ]]; then
-            echo "Maven Central: https://central.sonatype.com/artifact/io.getstream/stream-video-webrtc-android/$VERSION"
+            echo "Maven Central: https://central.sonatype.com/artifact/io.getstream/$ARTIFACT_ID/$VERSION"
           fi
 
       - name: Notify Slack on publish success
@@ -439,16 +492,16 @@ jobs:
           webhook-type: incoming-webhook
           errors: true
           payload: |
-            text: ":android: Released ${{ needs.publish.outputs.published_version }} for ${{ github.repository }}"
+            text: ":android: Released ${{ needs.publish.outputs.artifact_id }} ${{ needs.publish.outputs.published_version }} for ${{ github.repository }}"
             blocks:
               - type: "section"
                 text:
                   type: "mrkdwn"
-                  text: ":rocket: *Released `${{ needs.publish.outputs.published_version }}`* for `${{ github.repository }}` to `${{ inputs.publish-targets }}`"
+                  text: ":rocket: *Released `${{ needs.publish.outputs.artifact_id }}:${{ needs.publish.outputs.published_version }}`* for `${{ github.repository }}` to `${{ inputs.publish-targets }}`"
               - type: "context"
                 elements:
                   - type: "mrkdwn"
-                    text: "<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.publish.outputs.published_version }}|Release notes> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run>"
+                    text: "<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.publish.outputs.release_tag }}|Release notes> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run>"
 
       - name: Notify Slack on release failure
         if: failure()

@@ -9,12 +9,23 @@ repositories {
     mavenCentral()
 }
 
-val aarFile = file("artifacts/libwebrtc.aar")
+val publishVariant = (project.findProperty("publishVariant") ?: "default").toString()
+require(publishVariant == "default" || publishVariant == "repackaged") {
+    "publishVariant must be default or repackaged"
+}
+val isRepackaged = publishVariant == "repackaged"
+val mavenArtifactId = if (isRepackaged) {
+    "stream-video-webrtc-android-repackaged"
+} else {
+    "stream-video-webrtc-android"
+}
+val aarFileName = if (isRepackaged) "libwebrtc-repackaged.aar" else "libwebrtc.aar"
+val aarFile = file("artifacts/$aarFileName")
 
 tasks.register("verifyAar") {
     doLast {
         if (!aarFile.exists()) {
-            throw GradleException("libwebrtc.aar not found in artifacts/ directory.")
+            throw GradleException("$aarFileName not found in artifacts/ directory.")
         }
         println("✅ AAR file verified: ${aarFile.absolutePath}")
         println("   Size: ${aarFile.length()} bytes")
@@ -23,11 +34,13 @@ tasks.register("verifyAar") {
 
 val androidSourcesJar = tasks.register<Jar>("androidSourcesJar") {
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    archiveBaseName.set("stream-video-webrtc-android")
+    archiveBaseName.set(mavenArtifactId)
     archiveClassifier.set("sources")
     // This project only contains pre-built AAR artifacts, no source code
-    // Create an empty sources jar to satisfy Maven Central requirements
+    // Create an empty sources jar to satisfy Maven Central requirements.
+    // Leave the other variant's AAR out when both files are in the repo.
     from(file("artifacts/"))
+    exclude(if (isRepackaged) "libwebrtc.aar" else "libwebrtc-repackaged.aar")
     includeEmptyDirs = false
 }
 
@@ -35,7 +48,7 @@ private fun Provider<Jar>.archivePath() = flatMap(Jar::getArchiveFile).get().asF
 
 val javadocJar = tasks.register<Jar>("javadocJar") {
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    archiveBaseName.set("stream-video-webrtc-android")
+    archiveBaseName.set(mavenArtifactId)
     archiveClassifier.set("javadoc")
 }
 
@@ -64,7 +77,7 @@ tasks.register("printAllArtifacts") {
 
     println("📦 Artifacts that will be published:")
     println("   Group ID: io.getstream")
-    println("   Artifact ID: stream-video-webrtc-android")
+    println("   Artifact ID: $mavenArtifactId")
     println("   Version: ${project.version}")
     println("")
     println("   Main AAR: ${aarFile.absolutePath} (${aarFile.length()} bytes)")
@@ -82,13 +95,19 @@ mavenPublishing {
 
     coordinates(
         groupId = "io.getstream",
-        artifactId = "stream-video-webrtc-android",
+        artifactId = mavenArtifactId,
         version = project.version.toString()
     )
 
     pom {
-        name.set("WebRTC Android")
-        description.set("WebRTC library for Android")
+        name.set(if (isRepackaged) "WebRTC Android Repackaged" else "WebRTC Android")
+        description.set(
+            if (isRepackaged) {
+                "WebRTC library for Android (io.getstream.webrtc)"
+            } else {
+                "WebRTC library for Android"
+            }
+        )
         url.set("https://github.com/GetStream/stream-video-android-webrtc")
 
         licenses {
