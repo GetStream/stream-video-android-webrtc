@@ -54,6 +54,20 @@ val javadocJar = tasks.register<Jar>("javadocJar") {
 
 private val isSnapshot = project.findProperty("SNAPSHOT")?.toString()?.toBoolean() == true
 
+// Where to publish: "streamRepo", "central", or both, comma-separated. CI always passes it;
+// with nothing passed this stays on Central so a local publishToMavenLocal behaves as before.
+// streamRepo stages a Maven-2 tree under build/staged-repo for a separate upload job.
+private val publishTargets = providers.gradleProperty("streamPublishTargets")
+    .getOrElse("central")
+    .split(",")
+    .map(String::trim)
+    .filter(String::isNotEmpty)
+    .toSet()
+
+require(publishTargets.isNotEmpty() && (publishTargets - setOf("central", "streamRepo")).isEmpty()) {
+    "'streamPublishTargets' must be a comma-separated subset of central, streamRepo but was '$publishTargets'"
+}
+
 if (isSnapshot) {
     version = "${project.version}-SNAPSHOT"
 }
@@ -70,12 +84,14 @@ tasks.register("printAllArtifacts") {
     println("   Sources JAR: ${androidSourcesJar.archivePath()}")
     println("   Javadoc JAR: ${javadocJar.archivePath()}")
     println("")
-    println("   Repository: Maven Central (via Sonatype)")
+    println("   Repositories: ${publishTargets.joinToString()}")
     println("   Signing: ${if (isSnapshot) "Disabled (SNAPSHOT)" else "Required"}")
 }
 
 mavenPublishing {
-    publishToMavenCentral(automaticRelease = !isSnapshot)
+    if ("central" in publishTargets) {
+        publishToMavenCentral(automaticRelease = !isSnapshot)
+    }
 
     coordinates(
         groupId = "io.getstream",
@@ -119,6 +135,17 @@ mavenPublishing {
 
 // Manually create the publication to include the pre-built AAR because that's not configurable
 // through the maven.publish plugin.
+if ("streamRepo" in publishTargets) {
+    publishing {
+        repositories {
+            maven {
+                name = "streamRepoStaging"
+                url = layout.buildDirectory.dir("staged-repo").get().asFile.toURI()
+            }
+        }
+    }
+}
+
 afterEvaluate {
     publishing {
         publications.create<MavenPublication>("prebuitltAar") {

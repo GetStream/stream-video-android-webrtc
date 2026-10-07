@@ -12,6 +12,17 @@ on:
         required: false
         type: boolean
         default: false
+      publish-targets:
+        description: >-
+          Leave as-is. central is a manual escape hatch for a release that has to
+          go out when the Stream repository cannot take it.
+        required: false
+        type: choice
+        options:
+          - streamRepo
+          - streamRepo,central
+          - central
+        default: streamRepo
       variant:
         description: "default publishes libwebrtc.aar as stream-video-webrtc-android. repackaged publishes libwebrtc-repackaged.aar as stream-video-webrtc-android-repackaged."
         required: false
@@ -64,6 +75,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: maven-publish
     needs: notify-queued
+    outputs:
+      published_version: ${{ steps.resolve_webrtc_release.outputs.published_version }}
+      tag: ${{ steps.resolve_webrtc_release.outputs.tag }}
+      sha: ${{ steps.commit_aar.outputs.sha }}
+      artifact_id: ${{ steps.resolve_webrtc_release.outputs.artifact_id }}
+      asset_name: ${{ steps.resolve_webrtc_release.outputs.asset_name }}
+      release_tag: ${{ steps.resolve_webrtc_release.outputs.release_tag }}
 
     steps:
       # Fetch the repository with full history so the workflow can create and push commits/tags.
@@ -188,6 +206,7 @@ jobs:
 
       # Persist the downloaded AAR in this repository before running the Maven publication.
       - name: Commit AAR artifact
+        id: commit_aar
         env:
           VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
           ASSET_NAME: ${{ steps.resolve_webrtc_release.outputs.asset_name }}
@@ -209,6 +228,7 @@ jobs:
               commit -m "$commit_message"
           fi
           git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # Confirm the expected AAR exists before invoking Gradle publishing tasks.
       - name: Verify AAR artifact
@@ -222,6 +242,8 @@ jobs:
 
       # Export the sanitized version and snapshot flag for the remaining shell steps.
       - name: Set version and snapshot variables
+        env:
+          PUBLISH_TARGETS: ${{ inputs.publish-targets }}
         run: |
           VERSION="${{ steps.resolve_webrtc_release.outputs.version }}"
           SNAPSHOT="${{ inputs.pre_release }}"
@@ -232,6 +254,8 @@ jobs:
           echo "published_version=$PUBLISHED_VERSION" >> $GITHUB_ENV
           echo "ORG_GRADLE_PROJECT_version=$VERSION" >> $GITHUB_ENV
           echo "ORG_GRADLE_PROJECT_SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
+          # An env var rather than -P, so a value with a space cannot split into a second argument.
+          echo "ORG_GRADLE_PROJECT_streamPublishTargets=$PUBLISH_TARGETS" >> "$GITHUB_ENV"
           echo "ORG_GRADLE_PROJECT_publishVariant=${{ inputs.variant }}" >> $GITHUB_ENV
           echo "ARTIFACT_ID=${{ steps.resolve_webrtc_release.outputs.artifact_id }}" >> $GITHUB_ENV
           echo "RELEASE_TAG=${{ steps.resolve_webrtc_release.outputs.release_tag }}" >> $GITHUB_ENV
@@ -256,8 +280,9 @@ jobs:
           echo "Artifacts to be published:"
           ./gradlew printAllArtifacts
 
-      # Publish the committed AAR and generated companion artifacts to Maven Central.
-      - name: Publish to Maven Central
+      # Publish the committed AAR and generated companion artifacts to every selected target:
+      # Maven Central directly, and/or a staged tree for the Stream repository upload job.
+      - name: Publish
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.OSSRH_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.OSSRH_PASSWORD }}
@@ -269,10 +294,11 @@ jobs:
           echo "Version: $published_version"
           echo "Snapshot: $SNAPSHOT"
 
-          ./gradlew publishToMavenCentral
+          ./gradlew publish
 
       # Give Maven Central a chance to serve the published artifact before tagging the release.
       - name: Wait for Maven artifact availability
+        if: ${{ contains(inputs.publish-targets, 'central') }}
         run: |
           GROUP_PATH="io/getstream"
           ARTIFACT_ID="${ARTIFACT_ID}"
@@ -306,69 +332,16 @@ jobs:
           echo "::warning::Timed out after $TIMEOUT_SECONDS seconds waiting for Maven artifact availability."
           echo "Continuing because Maven Central sync can occasionally take longer."
 
-      # Publish a GitHub release for the committed AAR. The release tag is created as part of this step.
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.resolve_webrtc_release.outputs.published_version }}
-          UPSTREAM_TAG: ${{ steps.resolve_webrtc_release.outputs.tag }}
-          PRE_RELEASE: ${{ inputs.pre_release }}
-          ARTIFACT_ID: ${{ steps.resolve_webrtc_release.outputs.artifact_id }}
-          ASSET_NAME: ${{ steps.resolve_webrtc_release.outputs.asset_name }}
-          RELEASE_TAG: ${{ steps.resolve_webrtc_release.outputs.release_tag }}
-        run: |
-          PRERELEASE_FLAG=""
-          if [ "$PRE_RELEASE" == "true" ]; then
-            PRERELEASE_FLAG="--prerelease"
-          fi
-
-          NOTES=$(printf '%s\n\n%s\n' \
-            "Built from upstream [GetStream/webrtc@${UPSTREAM_TAG}](https://github.com/GetStream/webrtc/releases/tag/${UPSTREAM_TAG})." \
-            "Maven coordinate: \`io.getstream:${ARTIFACT_ID}:${VERSION}\`")
-
-          gh release create "$RELEASE_TAG" \
-            "artifacts/$ASSET_NAME" \
-            --title "$RELEASE_TAG" \
-            --target "$(git rev-parse HEAD)" \
-            --notes "$NOTES" \
-            $PRERELEASE_FLAG
-
-      # Print the final publication summary and Maven Central lookup details.
-      - name: Verify publication
-        run: |
-          echo "Publication completed successfully!"
-          echo "Published artifact: io.getstream:$ARTIFACT_ID:$published_version"
-
-          # For non-snapshot versions, show staging repository info
-          if [ "$SNAPSHOT" != "true" ]; then
-            echo ""
-            echo "🚀 Release version published and released to Maven Central!"
-            echo "The artifact is available on Maven Central."
-            echo "Search for: io.getstream:$ARTIFACT_ID:$published_version"
-          else
-            echo ""
-            echo "📦 Snapshot version published!"
-            echo "Available at: https://central.sonatype.com/repository/maven-snapshots/io/getstream/$ARTIFACT_ID/"
-          fi
-
-      - name: Notify Slack on publish success
-        continue-on-error: true
-        uses: slackapi/slack-github-action@v3.0.3
+      # Handed to a job that has never seen the signing key -- the reason Gradle stages to a
+      # directory instead of writing to the bucket itself.
+      - name: Hand the staged tree to the upload job
+        if: ${{ contains(inputs.publish-targets, 'streamRepo') }}
+        uses: actions/upload-artifact@v4
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID_CICD }}
-          webhook-type: incoming-webhook
-          errors: true
-          payload: |
-            text: ":android: Released ${{ steps.resolve_webrtc_release.outputs.artifact_id }} ${{ steps.resolve_webrtc_release.outputs.published_version }} for ${{ github.repository }}"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: ":rocket: *Released `${{ steps.resolve_webrtc_release.outputs.artifact_id }}:${{ steps.resolve_webrtc_release.outputs.published_version }}`* for `${{ github.repository }}`"
-              - type: "context"
-                elements:
-                  - type: "mrkdwn"
-                    text: "<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.resolve_webrtc_release.outputs.release_tag }}|Release notes> · <https://central.sonatype.com/artifact/io.getstream/${{ steps.resolve_webrtc_release.outputs.artifact_id }}/${{ steps.resolve_webrtc_release.outputs.published_version }}|Maven Central> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run>"
+          name: stream-repo-staged
+          path: build/staged-repo
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Notify Slack on publish failure
         if: failure()
@@ -388,3 +361,163 @@ jobs:
                 elements:
                   - type: "mrkdwn"
                     text: "<${{ inputs.webrtc_release_url }}|Upstream release> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+  # Separate job: secrets are injected per job, so this one holds the R2 credential and never the
+  # signing key, and the publish job holds the signing key and never the R2 credential.
+  upload:
+    needs: publish
+    if: ${{ contains(inputs.publish-targets, 'streamRepo') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download the staged tree
+        uses: actions/download-artifact@v4
+        with:
+          name: stream-repo-staged
+          path: build/staged-repo
+
+      - name: Publish to the Stream repository
+        uses: GetStream/stream-build-conventions-android/.github/actions/publish-to-stream-repo@v1.0.1
+        with:
+          staged-directory: build/staged-repo
+          channel: ${{ inputs.pre_release && 'snapshots' || 'releases' }}
+          endpoint: ${{ secrets.STREAM_REPO_ENDPOINT }}
+          bucket: ${{ secrets.STREAM_REPO_BUCKET }}
+          access-key-id: ${{ secrets.STREAM_REPO_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.STREAM_REPO_SECRET_ACCESS_KEY }}
+
+      - name: Notify Slack on upload failure
+        if: failure()
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID_CICD }}
+          webhook-type: incoming-webhook
+          errors: true
+          payload: |
+            text: ":x: WebRTC ${{ needs.publish.outputs.published_version }} upload to the Stream repository failed for ${{ github.repository }}"
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: |-
+                    :x: *WebRTC `${{ needs.publish.outputs.published_version }}` upload to the Stream repository failed* for `${{ github.repository }}`
+                    The AAR commit is pushed but no GitHub release was created. Re-run the failed job within a day, while the staged tree is still kept.
+              - type: "context"
+                elements:
+                  - type: "mrkdwn"
+                    text: "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+  # The GitHub release (and its tag) only once the artifact is actually resolvable: after the
+  # upload when the Stream repository is a target, straight after publish when it is not.
+  release:
+    needs: [publish, upload]
+    if: >-
+      ${{ always()
+          && needs.publish.result == 'success'
+          && (needs.upload.result == 'success' || needs.upload.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.publish.outputs.published_version }}
+      UPSTREAM_TAG: ${{ needs.publish.outputs.tag }}
+      PRE_RELEASE: ${{ inputs.pre_release }}
+      TARGETS: ${{ inputs.publish-targets }}
+      ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+      ASSET_NAME: ${{ needs.publish.outputs.asset_name }}
+      RELEASE_TAG: ${{ needs.publish.outputs.release_tag }}
+    steps:
+      - name: Checkout the published commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+
+      # Publish a GitHub release for the committed AAR. The release tag is created as part of this step.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "$PRE_RELEASE" == "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          : > notes.md
+          # Customers need one line of setup to see a version that is not on Central.
+          if [ "$TARGETS" == "streamRepo" ]; then
+            cat > notes.md <<EOF
+          > [!IMPORTANT]
+          > **\`$ARTIFACT_ID:$VERSION\` is published to the Stream Maven repository, not Maven Central.**
+          >
+          > \`\`\`kotlin
+          > // settings.gradle.kts
+          > dependencyResolutionManagement {
+          >     repositories {
+          >         google()
+          >         mavenCentral()
+          >         maven("https://stream-io-repo.com")
+          >     }
+          > }
+          > \`\`\`
+
+          EOF
+          fi
+          printf '%s\n\n%s\n' \
+            "Built from upstream [GetStream/webrtc@${UPSTREAM_TAG}](https://github.com/GetStream/webrtc/releases/tag/${UPSTREAM_TAG})." \
+            "Maven coordinate: \`io.getstream:${ARTIFACT_ID}:${VERSION}\`" >> notes.md
+
+          gh release create "$RELEASE_TAG" \
+            "artifacts/$ASSET_NAME" \
+            --title "$RELEASE_TAG" \
+            --target "${{ needs.publish.outputs.sha }}" \
+            --notes-file notes.md \
+            $PRERELEASE_FLAG
+
+      - name: Verify publication
+        run: |
+          echo "Publication completed successfully!"
+          echo "Published artifact: io.getstream:$ARTIFACT_ID:$VERSION"
+          echo "Targets: $TARGETS"
+          if [[ "$TARGETS" == *streamRepo* ]]; then
+            echo "Stream repository: https://browse.stream-io-repo.com/"
+          fi
+          if [[ "$TARGETS" == *central* ]]; then
+            echo "Maven Central: https://central.sonatype.com/artifact/io.getstream/$ARTIFACT_ID/$VERSION"
+          fi
+
+      - name: Notify Slack on publish success
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID_CICD }}
+          webhook-type: incoming-webhook
+          errors: true
+          payload: |
+            text: ":android: Released ${{ needs.publish.outputs.artifact_id }} ${{ needs.publish.outputs.published_version }} for ${{ github.repository }}"
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: ":rocket: *Released `${{ needs.publish.outputs.artifact_id }}:${{ needs.publish.outputs.published_version }}`* for `${{ github.repository }}` to `${{ inputs.publish-targets }}`"
+              - type: "context"
+                elements:
+                  - type: "mrkdwn"
+                    text: "<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.publish.outputs.release_tag }}|Release notes> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run>"
+
+      - name: Notify Slack on release failure
+        if: failure()
+        uses: slackapi/slack-github-action@v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_ANDROID_CICD }}
+          webhook-type: incoming-webhook
+          errors: true
+          payload: |
+            text: ":x: WebRTC ${{ needs.publish.outputs.published_version }} is published but the GitHub release failed for ${{ github.repository }}"
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: ":x: *WebRTC `${{ needs.publish.outputs.published_version }}` is published but the GitHub release failed* for `${{ github.repository }}`"
+              - type: "context"
+                elements:
+                  - type: "mrkdwn"
+                    text: "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
