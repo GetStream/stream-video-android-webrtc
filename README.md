@@ -1,6 +1,6 @@
 # Stream Video Android WebRTC
 
-This repository builds and publishes WebRTC Android AAR artifacts to Maven Central for easy consumption in Android applications. 
+This repository builds and publishes WebRTC Android AAR artifacts to the [Stream Maven repository](https://browse.stream-io-repo.com/releases/) for easy consumption in Android applications. 
 The [Stream video SDK](https://github.com/GetStream/stream-video-android) also uses the this artifact
 
 The WebRTC source code comes from the [getStream/webrtc](https://github.com/GetStream/webrtc) repository, which is built using the `build-webrtc` workflow and the resulting AAR file is placed in this repository for publishing.
@@ -25,6 +25,20 @@ The AAR file must be placed in this directory before publishing can occur.
 
 ## Maven Dependency
 
+Add the Stream Maven repository to your `settings.gradle`:
+
+```gradle
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://stream-io-repo.com' }
+    }
+}
+```
+
+Earlier versions remain available from Maven Central.
+
 To use the compiled WebRTC library in your Android application, add the following dependency to your `build.gradle` file:
 
 ### For Release Versions
@@ -39,7 +53,7 @@ dependencies {
 
 ```gradle
 repositories {
-    maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
+    maven { url 'https://snapshots.stream-io-repo.com' }
 }
 
 dependencies {
@@ -51,7 +65,7 @@ dependencies {
 
 - **Group ID**: `io.getstream`
 - **Artifact ID**: `stream-video-webrtc-android`
-- **Repository**: Maven Central (central.sonatype.com)
+- **Repository**: Stream Maven repository (`stream-io-repo.com`, snapshots on `snapshots.stream-io-repo.com`)
 - **Latest Version**: Check the [releases page](https://github.com/GetStream/stream-video-android-webrtc/releases) for the current version
 
 ## Publishing Process
