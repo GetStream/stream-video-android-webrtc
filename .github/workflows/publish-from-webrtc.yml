@@ -31,6 +31,10 @@ on:
           - default
           - repackaged
         default: default
+      promote_from_upstream_tag:
+        description: "Upstream pre-release tag whose repackaged AAR should be published as this stable release. Empty uses the repackaged AAR already attached to this repo."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -82,6 +86,7 @@ jobs:
       artifact_id: ${{ steps.resolve_webrtc_release.outputs.artifact_id }}
       asset_name: ${{ steps.resolve_webrtc_release.outputs.asset_name }}
       release_tag: ${{ steps.resolve_webrtc_release.outputs.release_tag }}
+      asset_source: ${{ steps.resolve_webrtc_release.outputs.asset_source }}
 
     steps:
       # Fetch the repository with full history so the workflow can create and push commits/tags.
@@ -105,11 +110,34 @@ jobs:
           WEBRTC_RELEASE_URL: ${{ inputs.webrtc_release_url }}
           PRE_RELEASE: ${{ inputs.pre_release }}
           VARIANT: ${{ inputs.variant }}
+          PROMOTE_FROM: ${{ inputs.promote_from_upstream_tag }}
         run: |
           python3 <<'PY'
           import os
           import re
           from urllib.parse import unquote, urlparse
+
+          def derive_release_tag(raw_tag, pre_release):
+              sanitized = re.sub(r"[^0-9A-Za-z.-]+", "-", raw_tag.removeprefix("v")).strip("-")
+              if not sanitized:
+                  raise SystemExit("WebRTC release tag could not be converted into a version")
+              match = re.fullmatch(r"([0-9]+(?:\.[0-9]+){0,2})(?:-([0-9A-Za-z.-]+))?", sanitized)
+              if not match:
+                  raise SystemExit(
+                      "WebRTC release tag could not be converted into a SemVer version with major.minor.patch"
+                  )
+              core_parts = [str(int(part)) for part in match.group(1).split(".")]
+              version = ".".join(core_parts + ["0"] * (3 - len(core_parts)))
+              prerelease = match.group(2)
+              if prerelease == "repackaged":
+                  prerelease = None
+              elif prerelease and prerelease.endswith("-repackaged"):
+                  prerelease = prerelease[: -len("-repackaged")] or None
+              if prerelease:
+                  version = f"{version}-{prerelease}"
+              if pre_release and not version.endswith("-SNAPSHOT"):
+                  version = f"{version}-SNAPSHOT"
+              return f"{version}-repackaged"
 
           url = os.environ["WEBRTC_RELEASE_URL"]
           variant = os.environ["VARIANT"]
@@ -175,7 +203,18 @@ jobs:
               artifact_id = "stream-video-webrtc-android"
               release_tag = published_version
 
+          promote_from = os.environ.get("PROMOTE_FROM", "").strip()
+          asset_source = "webrtc"
           download_url = f"https://github.com/GetStream/webrtc/releases/download/{tag}/{asset_name}"
+          if variant == "repackaged":
+              own_repo = "https://github.com/GetStream/stream-video-android-webrtc/releases/download"
+              if promote_from:
+                  source_tag = derive_release_tag(promote_from, pre_release=True)
+                  download_url = f"{own_repo}/{source_tag}/{asset_name}"
+                  asset_source = "promote"
+              else:
+                  download_url = f"{own_repo}/{release_tag}/{asset_name}"
+                  asset_source = "incoming"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"tag={tag}\n")
               output.write(f"version={version}\n")
@@ -184,14 +223,23 @@ jobs:
               output.write(f"asset_name={asset_name}\n")
               output.write(f"artifact_id={artifact_id}\n")
               output.write(f"release_tag={release_tag}\n")
+              output.write(f"asset_source={asset_source}\n")
           PY
 
       # Fail before downloading or publishing if this published version has already been tagged.
       - name: Check release tag does not exist
         env:
           RELEASE_TAG: ${{ steps.resolve_webrtc_release.outputs.release_tag }}
+          ASSET_SOURCE: ${{ steps.resolve_webrtc_release.outputs.asset_source }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+          if [ "$ASSET_SOURCE" = "incoming" ]; then
+            body="$(gh release view "$RELEASE_TAG" --json body --jq '.body // ""')"
+            if printf '%s\n' "$body" | grep -q "Maven coordinate"; then
+              echo "Tag $RELEASE_TAG is already published"
+              exit 1
+            fi
+          elif git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Tag $RELEASE_TAG already exists"
             exit 1
           fi
@@ -425,6 +473,7 @@ jobs:
       ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
       ASSET_NAME: ${{ needs.publish.outputs.asset_name }}
       RELEASE_TAG: ${{ needs.publish.outputs.release_tag }}
+      ASSET_SOURCE: ${{ needs.publish.outputs.asset_source }}
     steps:
       - name: Checkout the published commit
         uses: actions/checkout@v4
@@ -465,12 +514,25 @@ jobs:
             "Built from upstream [GetStream/webrtc@${UPSTREAM_TAG}](https://github.com/GetStream/webrtc/releases/tag/${UPSTREAM_TAG})." \
             "Maven coordinate: \`io.getstream:${ARTIFACT_ID}:${VERSION}\`" >> notes.md
 
-          gh release create "$RELEASE_TAG" \
-            "artifacts/$ASSET_NAME" \
-            --title "$RELEASE_TAG" \
-            --target "${{ needs.publish.outputs.sha }}" \
-            --notes-file notes.md \
-            $PRERELEASE_FLAG
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [ "$ASSET_SOURCE" != "incoming" ]; then
+              echo "Tag $RELEASE_TAG already exists"
+              exit 1
+            fi
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --target "${{ needs.publish.outputs.sha }}" \
+              --notes-file notes.md \
+              --latest=false \
+              $PRERELEASE_FLAG
+          else
+            gh release create "$RELEASE_TAG" \
+              "artifacts/$ASSET_NAME" \
+              --title "$RELEASE_TAG" \
+              --target "${{ needs.publish.outputs.sha }}" \
+              --notes-file notes.md \
+              $PRERELEASE_FLAG
+          fi
 
       - name: Verify publication
         run: |
