@@ -44,7 +44,7 @@ jobs:
   # `maven-publish` environment gate. This job is intentionally ungated so the message lands
   # immediately and reviewers know there is something to approve.
   notify-queued:
-    runs-on: ubuntu-latest
+    runs-on: { group: github-public-amd64 }
     steps:
       - name: Extract upstream tag for display
         id: tag
@@ -76,7 +76,7 @@ jobs:
                     text: "<${{ inputs.webrtc_release_url }}|Upstream release> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Approve in Actions>"
 
   publish:
-    runs-on: ubuntu-latest
+    runs-on: { group: github-public-amd64 }
     environment: maven-publish
     needs: notify-queued
     outputs:
@@ -415,7 +415,7 @@ jobs:
   upload:
     needs: publish
     if: ${{ contains(inputs.publish-targets, 'streamRepo') }}
-    runs-on: ubuntu-latest
+    runs-on: { group: github-public-amd64 }
     permissions:
       contents: read
     steps:
@@ -464,7 +464,7 @@ jobs:
       ${{ always()
           && needs.publish.result == 'success'
           && (needs.upload.result == 'success' || needs.upload.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: { group: github-public-amd64 }
     env:
       VERSION: ${{ needs.publish.outputs.published_version }}
       UPSTREAM_TAG: ${{ needs.publish.outputs.tag }}

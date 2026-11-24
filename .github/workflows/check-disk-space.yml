@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   check-disk:
-    runs-on: runner-extra-capacity  # GitHub-hosted runner
+    runs-on: { group: github-public-amd64 }  # GitHub-hosted runner
     steps:
       - name: Check free disk space
         run: df -h
