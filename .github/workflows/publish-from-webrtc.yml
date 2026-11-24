@@ -76,7 +76,9 @@ jobs:
                     text: "<${{ inputs.webrtc_release_url }}|Upstream release> · <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Approve in Actions>"
 
   publish:
-    runs-on: ubuntu-latest
+    # Reads the GitHub release and pushes the AAR commit, and the org IP allow list only admits static-IP runners.
+    runs-on:
+      group: github-public-ubuntu-static
     environment: maven-publish
     needs: notify-queued
     outputs:
@@ -464,7 +466,9 @@ jobs:
       ${{ always()
           && needs.publish.result == 'success'
           && (needs.upload.result == 'success' || needs.upload.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    # Creates the GitHub release, and the org IP allow list only admits static-IP runners.
+    runs-on:
+      group: github-public-ubuntu-static
     env:
       VERSION: ${{ needs.publish.outputs.published_version }}
       UPSTREAM_TAG: ${{ needs.publish.outputs.tag }}
