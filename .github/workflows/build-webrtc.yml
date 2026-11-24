@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: runner-extra-capacity
+    runs-on: { group: github-public-amd64 }
 
     steps:
       - name: Checkout this repo
